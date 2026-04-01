@@ -1,0 +1,1051 @@
+import pygame
+import websockets
+import json
+import asyncio
+import math
+import sys
+import time
+import threading
+from enum import Enum
+from typing import Dict, List, Tuple
+import numpy as np
+from PIL import Image
+from datetime import datetime
+
+# ==================== PYGAME SETUP ====================
+pygame.init()
+pygame.mixer.init()
+
+# Load client config
+with open('client_configs.json', 'r') as f:
+    CLIENT_CONFIG = json.load(f)
+
+SCREEN_WIDTH = CLIENT_CONFIG['display']['width']
+SCREEN_HEIGHT = CLIENT_CONFIG['display']['height']
+FPS = CLIENT_CONFIG['display']['fps']
+GRID_VISIBLE = CLIENT_CONFIG['display']['grid_visible']
+
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Tank Battle Arena")
+clock = pygame.time.Clock()
+font_large = pygame.font.Font(None, 48)
+font_medium = pygame.font.Font(None, 32)
+font_small = pygame.font.Font(None, 24)
+font_tiny = pygame.font.Font(None, 16)
+
+# ==================== ENUMS ====================
+class GameState(Enum):
+    CONNECTING = "connecting"
+    LOGIN = "login"
+    LOBBY = "lobby"
+    PLAYING = "playing"
+    DEAD = "dead"
+    SPECTATING = "spectating"
+    MENU = "menu"
+
+class PlayerState(Enum):
+    ALIVE = "alive"
+    DEAD = "dead"
+    SPECTATING = "spectating"
+
+# ==================== HELPER CLASSES ====================
+class Vector2:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
+    
+    def __add__(self, other):
+        return Vector2(self.x + other.x, self.y + other.y)
+    
+    def __sub__(self, other):
+        return Vector2(self.x - other.x, self.y - other.y)
+    
+    def __mul__(self, scalar):
+        return Vector2(self.x * scalar, self.y * scalar)
+    
+    def distance_to(self, other):
+        return math.sqrt((self.x - other.x)**2 + (self.y - other.y)**2)
+    
+    def normalize(self):
+        length = math.sqrt(self.x**2 + self.y**2)
+        if length > 0:
+            return Vector2(self.x / length, self.y / length)
+        return Vector2(0, 0)
+    
+    def angle(self):
+        return math.atan2(self.y, self.x)
+
+class InputManager:
+    def __init__(self, config):
+        self.config = config['keyboard']
+        self.keys = {}
+        self.mouse_pos = (0, 0)
+        self.mouse_buttons = {}
+        self.key_map = self._create_key_map()
+    
+    def _create_key_map(self):
+        """Create mapping from config strings to pygame constants"""
+        key_map = {
+            'W': pygame.K_w, 'S': pygame.K_s, 'A': pygame.K_a, 'D': pygame.K_d,
+            'Q': pygame.K_q, 'E': pygame.K_e, 'R': pygame.K_r, 'T': pygame.K_t,
+            'Z': pygame.K_z, 'F': pygame.K_f, 'TAB': pygame.K_TAB,
+            'SHIFT': pygame.K_LSHIFT, 'SPACE': pygame.K_SPACE
+        }
+        return key_map
+    
+    def update(self):
+        """Update input state"""
+        self.keys = pygame.key.get_pressed()
+        self.mouse_pos = pygame.mouse.get_pos()
+        self.mouse_buttons = pygame.mouse.get_pressed()
+    
+    def is_pressed(self, action):
+        """Check if action key is pressed"""
+        key_name = self.config.get(action)
+        if not key_name:
+            return False
+        if key_name == 'MOUSE_LEFT':
+            return self.mouse_buttons[0]
+        key_const = self.key_map.get(key_name)
+        return self.keys[key_const] if key_const else False
+    
+    def get_direction(self):
+        """Get movement direction from WASD"""
+        direction = Vector2(0, 0)
+        if self.is_pressed('right'):
+            direction.x += 1
+        if self.is_pressed('left'):
+            direction.x -= 1
+        if self.is_pressed('down'):
+            direction.y += 1
+        if self.is_pressed('up'):
+            direction.y -= 1
+        return direction.normalize() if direction.x or direction.y else Vector2(0, 0)
+    
+    def get_mouse_angle(self):
+        """Get angle from player to mouse"""
+        return math.atan2(self.mouse_pos[1] - SCREEN_HEIGHT/2, 
+                         self.mouse_pos[0] - SCREEN_WIDTH/2)
+
+# ==================== GAME OBJECTS ====================
+class RemotePlayer:
+    def __init__(self, player_id, username, x, y, team, tank_name):
+        self.id = player_id
+        self.username = username
+        self.x = x
+        self.y = y
+        self.angle = 0
+        self.team = team
+        self.tank_name = tank_name
+        self.health = 100
+        self.max_health = 100
+        self.is_alive = True
+        self.score = 0
+        self.rank = 1
+        self.last_update = time.time()
+    
+    def update(self, data):
+        """Update from server data"""
+        self.x = data.get('x', self.x)
+        self.y = data.get('y', self.y)
+        self.angle = data.get('angle', self.angle)
+        self.health = data.get('health', self.health)
+        self.max_health = data.get('max_health', self.max_health)
+        self.is_alive = data.get('alive', True)
+        self.score = data.get('score', self.score)
+        self.rank = data.get('rank', self.rank)
+        self.last_update = time.time()
+    
+    def draw(self, surface, camera_pos, player_team, tank_images):
+        """Draw player on screen"""
+        screen_x = self.x - camera_pos[0] + SCREEN_WIDTH/2
+        screen_y = self.y - camera_pos[1] + SCREEN_HEIGHT/2
+        
+        # Skip if off-screen
+        if screen_x < -100 or screen_x > SCREEN_WIDTH + 100 or \
+           screen_y < -100 or screen_y > SCREEN_HEIGHT + 100:
+            return
+        
+        # Draw health bar
+        if not self.is_alive:
+            return
+        
+        # Color based on team
+        if self.team == player_team:
+            color = tuple(CLIENT_CONFIG['colors']['player_teammate'])
+        else:
+            color = tuple(CLIENT_CONFIG['colors']['player_enemy'])
+        
+        # Draw tank
+        radius = 15
+        pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), radius)
+        
+        # Draw barrel
+        barrel_length = 25
+        barrel_x = screen_x + math.cos(self.angle) * barrel_length
+        barrel_y = screen_y + math.sin(self.angle) * barrel_length
+        pygame.draw.line(surface, color, (screen_x, screen_y), 
+                        (barrel_x, barrel_y), 3)
+        
+        # Draw name and health
+        if CLIENT_CONFIG['gameplay']['show_names']:
+            name_text = font_tiny.render(self.username, True, (255, 255, 255))
+            surface.blit(name_text, (screen_x - 20, screen_y - 30))
+        
+        if CLIENT_CONFIG['gameplay']['show_health_bars']:
+            health_width = 40
+            health_height = 5
+            health_bar_rect = pygame.Rect(screen_x - health_width/2, screen_y + 20, 
+                                         health_width * (self.health / self.max_health), health_height)
+            pygame.draw.rect(surface, (100, 255, 100), health_bar_rect)
+            pygame.draw.rect(surface, (255, 255, 255), 
+                           pygame.Rect(screen_x - health_width/2, screen_y + 20, health_width, health_height), 1)
+
+class Blob:
+    def __init__(self, blob_id, x, y, blob_type, hp, reward):
+        self.id = blob_id
+        self.x = x
+        self.y = y
+        self.type = blob_type
+        self.hp = hp
+        self.max_hp = hp
+        self.reward = reward
+        self.radius = 8
+    
+    def update(self, data):
+        """Update from server data"""
+        self.x = data.get('x', self.x)
+        self.y = data.get('y', self.y)
+        self.hp = data.get('hp', self.hp)
+    
+    def draw(self, surface, camera_pos):
+        """Draw blob on screen"""
+        screen_x = self.x - camera_pos[0] + SCREEN_WIDTH/2
+        screen_y = self.y - camera_pos[1] + SCREEN_HEIGHT/2
+        
+        if screen_x < -50 or screen_x > SCREEN_WIDTH + 50 or \
+           screen_y < -50 or screen_y > SCREEN_HEIGHT + 50:
+            return
+        
+        # Color based on type
+        color_key = f'blob_{self.type}'
+        color = tuple(CLIENT_CONFIG['colors'].get(color_key, [200, 200, 200]))
+        
+        # Draw blob shape
+        if self.type == 'circle':
+            pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), self.radius)
+        elif self.type == 'triangle':
+            points = [
+                (screen_x, screen_y - self.radius),
+                (screen_x + self.radius, screen_y + self.radius),
+                (screen_x - self.radius, screen_y + self.radius)
+            ]
+            pygame.draw.polygon(surface, color, points)
+        elif self.type == 'square':
+            pygame.draw.rect(surface, color, 
+                           (screen_x - self.radius, screen_y - self.radius, 
+                            self.radius*2, self.radius*2))
+
+class Bullet:
+    def __init__(self, bullet_id, x, y, owner_id):
+        self.id = bullet_id
+        self.x = x
+        self.y = y
+        self.owner_id = owner_id
+        self.radius = 3
+        self.creation_time = time.time()
+    
+    def draw(self, surface, camera_pos):
+        """Draw bullet on screen"""
+        screen_x = self.x - camera_pos[0] + SCREEN_WIDTH/2
+        screen_y = self.y - camera_pos[1] + SCREEN_HEIGHT/2
+        
+        if -50 < screen_x < SCREEN_WIDTH + 50 and -50 < screen_y < SCREEN_HEIGHT + 50:
+            pygame.draw.circle(surface, (255, 255, 100), (int(screen_x), int(screen_y)), self.radius)
+
+# ==================== MENU SYSTEM ====================
+class Menu:
+    def __init__(self, game_client):
+        self.game_client = game_client
+        self.active = False
+        self.current_menu = "main"
+        self.selected_option = 0
+        self.options = {}
+        self.init_menus()
+    
+    def init_menus(self):
+        """Initialize menu structures"""
+        self.options = {
+            'main': [
+                ('Resume (ESC)', self.resume),
+                ('Tutorial', self.show_tutorial),
+                ('Tank Upgrade (Q)', self.show_tank_upgrades),
+                ('Skill Upgrade (E)', self.show_skill_upgrades),
+                ('Tank Index', self.show_tank_index),
+                ('Skill Index', self.show_skill_index),
+                ('Rank Index', self.show_rank_index),
+                ('Profile', self.show_profile),
+                ('Settings', self.show_settings),
+                ('Disconnect', self.disconnect),
+                ('Quit Game', self.quit_game)
+            ]
+        }
+    
+    def toggle(self):
+        """Toggle menu open/closed"""
+        self.active = not self.active
+        if self.active:
+            self.current_menu = 'main'
+            self.selected_option = 0
+    
+    def handle_input(self, input_manager):
+        """Handle menu input"""
+        if not self.active:
+            return
+        
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_UP]:
+            self.selected_option = (self.selected_option - 1) % len(self.options[self.current_menu])
+        if keys[pygame.K_DOWN]:
+            self.selected_option = (self.selected_option + 1) % len(self.options[self.current_menu])
+        if keys[pygame.K_RETURN]:
+            option_name, option_func = self.options[self.current_menu][self.selected_option]
+            option_func()
+    
+    def draw(self, surface):
+        """Draw menu on screen"""
+        if not self.active:
+            return
+        
+        # Semi-transparent background
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill((0, 0, 0))
+        surface.blit(overlay, (0, 0))
+        
+        # Menu title
+        title = font_large.render(f"MENU - {self.current_menu.upper()}", True, (100, 255, 100))
+        surface.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 50))
+        
+        # Menu options
+        y_offset = 150
+        for i, (option_name, _) in enumerate(self.options[self.current_menu]):
+            color = (100, 255, 100) if i == self.selected_option else (200, 200, 200)
+            text = font_medium.render(option_name, True, color)
+            surface.blit(text, (SCREEN_WIDTH//2 - text.get_width()//2, y_offset + i*50))
+        
+        # Instructions
+        instructions = font_small.render("↑/↓ to navigate, ENTER to select, ESC to close", True, (150, 150, 150))
+        surface.blit(instructions, (SCREEN_WIDTH//2 - instructions.get_width()//2, SCREEN_HEIGHT - 50))
+    
+    # Menu callbacks
+    def resume(self):
+        self.active = False
+    
+    def show_tutorial(self):
+        pass  # Implement tutorial
+    
+    def show_tank_upgrades(self):
+        pass  # Implement tank upgrade UI
+    
+    def show_skill_upgrades(self):
+        self.SKILLS_UI.toggle()
+    
+    def show_tank_index(self):
+        pass  # Implement tank index
+    
+    def show_skill_index(self):
+        pass  # Implement skill index
+    
+    def show_rank_index(self):
+        pass  # Implement rank index
+    
+    def show_profile(self):
+        pass  # Implement profile view
+    
+    def show_settings(self):
+        pass  # Implement settings
+    
+    def disconnect(self):
+        self.game_client.disconnect()
+    
+    def quit_game(self):
+        pygame.quit()
+        sys.exit()
+
+# ==================== SKILL UI SYSTEM ====================
+class SKILL_UI:
+    def __init__(self, game_client):
+        self.game_client = game_client
+        self.active = False
+        self.current_skill = "skill"
+        self.selected_option = 0
+        self.options = {}
+        self.init_skills()
+    
+    def init_skills(self):
+        """Initialize skill structures"""
+        self.options = {
+            'skill': [
+                ('1', self.weapon_1),
+                ('2', self.weapon_2),
+                ('3', self.weapon_3),
+                ('4', self.weapon_4),
+                ('5', self.health_1),
+                ('6', self.health_2),
+                ('7', self.tank_1),
+                ('8', self.tank_2)
+            ]
+        }
+    
+    def toggle(self):
+        """Toggle skills_ui open/closed"""
+        self.active = not self.active
+        if self.active:
+            self.current_skill = 'skill'
+            self.selected_option = 0
+    
+    def handle_input(self, input_manager):
+        """Handle skill input"""
+        if not self.active:
+            return
+        
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_UP]:
+            self.selected_option = (self.selected_option - 1) % len(self.options[self.current_skill])
+        if keys[pygame.K_DOWN]:
+            self.selected_option = (self.selected_option + 1) % len(self.options[self.current_skill])
+        if keys[pygame.K_RETURN]:
+            option_name, option_func = self.options[self.current_skill][self.selected_option]
+            option_func()
+    
+    def draw(self, surface):
+        """Draw skills on screen"""
+        if not self.active:
+            return
+        
+        # Semi-transparent background
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill((0, 0, 0))
+        surface.blit(overlay, (0, 0))
+        
+        # Menu title
+        title = font_large.render(f"SKILLS - {self.current_skill.upper()}", True, (100, 255, 100))
+        surface.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 50))
+        
+        # Menu options
+        y_offset = 150
+        for i, (option_name, _) in enumerate(self.options[self.current_skill]):
+            color = (100, 255, 100) if i == self.selected_option else (200, 200, 200)
+            text = font_medium.render(option_name, True, color)
+            surface.blit(text, (SCREEN_WIDTH//2 - text.get_width()//2, y_offset + i*50))
+        
+        # Instructions
+        instructions = font_small.render("↑/↓ to navigate, ENTER to select, ESC to close", True, (150, 150, 150))
+        surface.blit(instructions, (SCREEN_WIDTH//2 - instructions.get_width()//2, SCREEN_HEIGHT - 50))
+    
+    # Menu callbacks
+    def weapon_1(self):
+        self.send_buy_upgrade("weapon_1")
+    
+    def weapon_2(self):
+        self.send_buy_upgrade("weapon_2")
+    
+    def weapon_3(self):
+        self.send_buy_upgrade("weapon_3")
+    
+    def weapon_4(self):
+        self.send_buy_upgrade("weapon_4")
+    
+    def health_1(self):
+        self.send_buy_upgrade("health_1")
+    
+    def health_2(self):
+        self.send_buy_upgrade("health_2")
+    
+    def tank_1(self):
+        self.send_buy_upgrade("tank_1")
+    
+    def tank_2(self):
+        self.send_buy_upgrade("tank_2")
+
+    def exit(self):
+        self.active = False
+      
+# ==================== GAME RENDERER ====================
+class Renderer:
+    def __init__(self, screen_width, screen_height):
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.grid_surface = None
+        self.create_grid()
+    
+    def create_grid(self):
+        """Create grid texture from grid.png"""
+        try:
+            grid_img = Image.open('grid.png')
+            grid_img = grid_img.resize((self.screen_width, self.screen_height))
+            self.grid_surface = pygame.image.fromstring(
+                grid_img.tobytes(), grid_img.size, grid_img.mode
+            )
+        except FileNotFoundError:
+            # Create procedural grid if image not found
+            self.grid_surface = pygame.Surface((self.screen_width, self.screen_height))
+            self.grid_surface.fill((20, 20, 20))
+            grid_size = 50
+            for x in range(0, self.screen_width, grid_size):
+                pygame.draw.line(self.grid_surface, (60, 60, 60), (x, 0), (x, self.screen_height))
+            for y in range(0, self.screen_height, grid_size):
+                pygame.draw.line(self.grid_surface, (60, 60, 60), (0, y), (self.screen_width, y))
+    
+    def draw_world(self, surface, players, blobs, bullets, camera_pos, brightness):
+        """Draw world with grid and coloring"""
+        surface.fill((20, 20, 20))
+        
+        # Apply day/night coloring
+        day_color = tuple(CLIENT_CONFIG['colors']['day_color'])
+        night_color = tuple(CLIENT_CONFIG['colors']['night_color'])
+        overlay = pygame.Surface((self.screen_width, self.screen_height))
+        overlay.set_alpha(100)
+        overlay.fill(tuple(int(day_color[i] * brightness + night_color[i] * (1-brightness)) 
+                          for i in range(3)))
+        surface.blit(overlay, (0, 0))
+        
+        # Draw grid
+        if GRID_VISIBLE:
+            grid_offset_x = -int(camera_pos[0]) % 50
+            grid_offset_y = -int(camera_pos[1]) % 50
+            surface.blit(self.grid_surface, (grid_offset_x, grid_offset_y))
+        
+        # Draw blobs
+        for blob in blobs:
+            blob.draw(surface, camera_pos)
+        
+        # Draw bullets
+        for bullet in bullets:
+            bullet.draw(surface, camera_pos)
+        
+        # Draw players
+        for player in players:
+            player.draw(surface, camera_pos, 1, {})  # TODO: pass tank images
+    
+    def draw_hud(self, surface, player, players, config):
+        """Draw heads-up display"""
+        if not player:
+            return
+        
+        # Health bar
+        health_width = 200
+        health_x = 20
+        health_y = 20
+        health_ratio = player['health'] / player['max_health']
+        
+        pygame.draw.rect(surface, (100, 255, 100), 
+                        (health_x, health_y, health_width * health_ratio, 20))
+        pygame.draw.rect(surface, (255, 255, 255), 
+                        (health_x, health_y, health_width, 20), 2)
+        
+        health_text = font_small.render(f"Health: {player['health']}/{player['max_health']}", 
+                                        True, (255, 255, 255))
+        surface.blit(health_text, (health_x + 5, health_y + 25))
+        
+        # Score and rank
+        score_text = font_small.render(f"Score: {player['score']}", True, (100, 255, 100))
+        surface.blit(score_text, (20, SCREEN_HEIGHT - 100))
+        
+        rank_text = font_small.render(f"Rank: {player['rank']}", True, (100, 255, 100))
+        surface.blit(rank_text, (20, SCREEN_HEIGHT - 60))
+        
+        tank_text = font_small.render(f"Tank: {player['tank']}", True, (100, 100, 255))
+        surface.blit(tank_text, (20, SCREEN_HEIGHT - 20))
+        
+        # Minimap
+        self.draw_minimap(surface, player, players)
+    
+    def draw_minimap(self, surface, player, players):
+        """Draw minimap in corner"""
+        minimap_size = 150
+        minimap_x = SCREEN_WIDTH - minimap_size - 10
+        minimap_y = 10
+        
+        # Minimap background
+        pygame.draw.rect(surface, (0, 0, 0), 
+                        (minimap_x, minimap_y, minimap_size, minimap_size))
+        pygame.draw.rect(surface, (100, 100, 100), 
+                        (minimap_x, minimap_y, minimap_size, minimap_size), 2)
+        
+        # Draw players on minimap
+        scale = minimap_size / 9280  # World width = 9280
+        for p in players:
+            mm_x = minimap_x + p['x'] * scale
+            mm_y = minimap_y + p['y'] * scale
+            
+            if p['id'] == player['id']:
+                pygame.draw.circle(surface, (100, 255, 100), (int(mm_x), int(mm_y)), 3)
+            elif p['team'] == player['team']:
+                pygame.draw.circle(surface, (100, 150, 255), (int(mm_x), int(mm_y)), 2)
+            else:
+                pygame.draw.circle(surface, (255, 100, 100), (int(mm_x), int(mm_y)), 2)
+
+# ==================== WEBSOCKET CLIENT ====================
+class GameClient:
+    def __init__(self):
+        self.game_ws = None
+        self.login_ws = None
+        self.token = None
+        self.player_id = None
+        self.player_data = None
+        self.game_state = GameState.CONNECTING
+        self.connected = False
+        self.server_config = {}
+        
+        # Game data
+        self.players = {}
+        self.blobs = {}
+        self.bullets = {}
+        self.chat_messages = []
+        
+        # Buffers
+        self.server_messages = asyncio.Queue()
+        self.client_loop = None
+    
+    async def login(self, username: str, password: str) -> bool:
+        """Authenticate with login server"""
+        login_url = CLIENT_CONFIG['network']['login_server']
+        
+        try:
+            async with websockets.connect(login_url) as ws:
+                await ws.send(json.dumps({
+                    'action': 'login',
+                    'username': username,
+                    'password': password
+                }))
+                
+                response = json.loads(await ws.recv())
+                
+                if response.get('success'):
+                    self.token = response['token']
+                    self.player_data = {
+                        'user_id': response['user_id'],
+                        'username': response['username'],
+                        'stats': response.get('stats', {})
+                    }
+                    return True
+                return False
+        except Exception as e:
+            print(f"Login error: {e}")
+            return False
+    
+    async def connect_to_game(self, username: str, team: int = 1) -> bool:
+        """Connect to game server"""
+        game_url = CLIENT_CONFIG['network']['game_server']
+        
+        try:
+            self.game_ws = await websockets.connect(game_url)
+            self.connected = True
+            
+            # Send auth
+            await self.game_ws.send(json.dumps({
+                'type': 'auth',
+                'token': self.token,
+                'username': username,
+                'team': team
+            }))
+            
+            # Receive welcome
+            response = json.loads(await self.game_ws.recv())
+            if response['type'] == 'welcome':
+                self.player_id = response['player_id']
+                self.server_config = response.get('config', {})
+                self.game_state = GameState.LOBBY
+                
+                # Start message receiver
+                asyncio.create_task(self._receive_messages())
+                return True
+            
+            return False
+        except Exception as e:
+            print(f"Connection error: {e}")
+            self.connected = False
+            return False
+    
+    async def _receive_messages(self):
+        """Receive and process server messages"""
+        try:
+            async for message in self.game_ws:
+                data = json.loads(message)
+                await self.server_messages.put(data)
+        except websockets.exceptions.ConnectionClosed:
+            self.connected = False
+    
+    def process_messages(self):
+        """Process queued server messages (non-async)"""
+        while not self.server_messages.empty():
+            try:
+                data = self.server_messages.get_nowait()
+                self._handle_message(data)
+            except asyncio.QueueEmpty:
+                break
+    
+    def _handle_message(self, data: dict):
+        """Handle server message"""
+        msg_type = data.get('type')
+        
+        if msg_type == 'state':
+            # Update game state
+            for player_data in data.get('players', []):
+                player_id = player_data['id']
+                if player_id not in self.players:
+                    self.players[player_id] = RemotePlayer(
+                        player_id, player_data['username'], 
+                        player_data['x'], player_data['y'],
+                        player_data['team'], player_data['tank']
+                    )
+                else:
+                    self.players[player_id].update(player_data)
+            
+            for blob_data in data.get('blobs', []):
+                blob_id = blob_data['id']
+                if blob_id not in self.blobs:
+                    self.blobs[blob_id] = Blob(
+                        blob_id, blob_data['x'], blob_data['y'],
+                        blob_data['type'], blob_data['hp'], blob_data['reward']
+                    )
+                else:
+                    self.blobs[blob_id].update(blob_data)
+            
+            for bullet_data in data.get('bullets', []):
+                bullet_id = bullet_data['id']
+                self.bullets[bullet_id] = Bullet(
+                    bullet_id, bullet_data['x'], bullet_data['y'],
+                    bullet_data['owner_id']
+                )
+        
+        elif msg_type == 'player_joined':
+            player_data = data['player']
+            if player_data['id'] not in self.players:
+                self.players[player_data['id']] = RemotePlayer(
+                    player_data['id'], player_data['username'],
+                    player_data['x'], player_data['y'],
+                    player_data['team'], player_data['tank']
+                )
+        
+        elif msg_type == 'player_left':
+            player_id = data['player_id']
+            if player_id in self.players:
+                del self.players[player_id]
+        
+        elif msg_type == 'chat':
+            self.chat_messages.append({
+                'username': data['username'],
+                'message': data['message'],
+                'team': data['team']
+            })
+            if len(self.chat_messages) > 50:
+                self.chat_messages.pop(0)
+    
+    async def send_move(self, vx: float, vy: float):
+        """Send movement to server"""
+        if self.game_ws and self.connected:
+            await self.game_ws.send(json.dumps({
+                'type': 'move',
+                'vx': vx,
+                'vy': vy
+            }))
+    
+    async def send_shoot(self, angle: float):
+        """Send shoot to server"""
+        if self.game_ws and self.connected:
+            await self.game_ws.send(json.dumps({
+                'type': 'shoot',
+                'angle': angle
+            }))
+    
+    async def send_chat(self, message: str):
+        """Send chat message"""
+        if self.game_ws and self.connected:
+            await self.game_ws.send(json.dumps({
+                'type': 'chat',
+                'message': message
+            }))
+    
+    async def send_buy_tank(self, tank_name: str):
+        """Buy tank"""
+        if self.game_ws and self.connected:
+            await self.game_ws.send(json.dumps({
+                'type': 'buy_tank',
+                'tank_name': tank_name
+            }))
+    
+    async def send_buy_upgrade(self, upgrade_name: str):
+        """Buy upgrade"""
+        if self.game_ws and self.connected:
+            await self.game_ws.send(json.dumps({
+                'type': 'buy_upgrade',
+                'upgrade_name': upgrade_name
+            }))
+    
+    def disconnect(self):
+        """Disconnect from server"""
+        self.connected = False
+        if self.game_ws:
+            asyncio.create_task(self.game_ws.close())
+
+# ==================== LOGIN SCREEN ====================
+class LoginScreen:
+    def __init__(self, game_client):
+        self.game_client = game_client
+        self.username_input = ""
+        self.password_input = ""
+        self.active_field = 0
+        self.error_message = ""
+        self.connecting = False
+    
+    def handle_input(self, event):
+        """Handle login input"""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_TAB:
+                self.active_field = 1 - self.active_field
+            elif event.key == pygame.K_BACKSPACE:
+                if self.active_field == 0:
+                    self.username_input = self.username_input[:-1]
+                else:
+                    self.password_input = self.password_input[:-1]
+            elif event.key == pygame.K_RETURN:
+                asyncio.create_task(self._try_login())
+            else:
+                char = event.unicode
+                if char.isalnum() or char in '-_.@':
+                    if self.active_field == 0:
+                        self.username_input += char
+                    else:
+                        self.password_input += char
+    
+    async def _try_login(self):
+        """Attempt login"""
+        self.connecting = True
+        if await self.game_client.login(self.username_input, self.password_input):
+            if await self.game_client.connect_to_game(self.username_input):
+                self.error_message = ""
+                return True
+            else:
+                self.error_message = "Failed to connect to game server"
+        else:
+            self.error_message = "Invalid credentials"
+        self.connecting = False
+        return False
+    
+    def draw(self, surface):
+        """Draw login screen"""
+        surface.fill((20, 20, 20))
+        
+        # Title
+        title = font_large.render("TANK BATTLE ARENA", True, (100, 255, 100))
+        surface.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 50))
+        
+        # Username field
+        username_text = font_medium.render("Username:", True, (200, 200, 200))
+        surface.blit(username_text, (SCREEN_WIDTH//2 - 200, 200))
+        
+        username_input_color = (100, 255, 100) if self.active_field == 0 else (100, 100, 100)
+        pygame.draw.rect(surface, username_input_color,
+                        (SCREEN_WIDTH//2 - 200, 250, 300, 40), 2)
+        username_render = font_medium.render(self.username_input or "Enter username", 
+                                            True, username_input_color)
+        surface.blit(username_render, (SCREEN_WIDTH//2 - 190, 255))
+        
+        # Password field
+        password_text = font_medium.render("Password:", True, (200, 200, 200))
+        surface.blit(password_text, (SCREEN_WIDTH//2 - 200, 320))
+        
+        password_input_color = (100, 255, 100) if self.active_field == 1 else (100, 100, 100)
+        pygame.draw.rect(surface, password_input_color,
+                        (SCREEN_WIDTH//2 - 200, 370, 300, 40), 2)
+        password_render = font_medium.render("*" * len(self.password_input) or "Enter password",
+                                            True, password_input_color)
+        surface.blit(password_render, (SCREEN_WIDTH//2 - 190, 375))
+        
+        # Error message
+        if self.error_message:
+            error_text = font_small.render(self.error_message, True, (255, 100, 100))
+            surface.blit(error_text, (SCREEN_WIDTH//2 - error_text.get_width()//2, 450))
+        
+        # Connecting status
+        if self.connecting:
+            connecting_text = font_small.render("Connecting...", True, (100, 100, 255))
+            surface.blit(connecting_text, (SCREEN_WIDTH//2 - connecting_text.get_width()//2, 500))
+        
+        # Instructions
+        instructions = font_tiny.render("TAB to switch fields, ENTER to login", True, (150, 150, 150))
+        surface.blit(instructions, (SCREEN_WIDTH//2 - instructions.get_width()//2, SCREEN_HEIGHT - 50))
+
+# ==================== MAIN GAME CLASS ====================
+class Game:
+    def __init__(self):
+        self.game_client = GameClient()
+        self.input_manager = InputManager(CLIENT_CONFIG)
+        self.renderer = Renderer(SCREEN_WIDTH, SCREEN_HEIGHT)
+        self.menu = Menu(self.game_client)
+        self.login_screen = LoginScreen(self.game_client)
+        self.game_state = GameState.LOGIN
+        self.camera_pos = Vector2(0, 0)
+        self.player_local = None
+        self.running = True
+        self.auto_shoot = CLIENT_CONFIG['gameplay']['auto_shoot_enabled']
+        self.auto_spin = CLIENT_CONFIG['gameplay']['auto_spin_enabled']
+        self.last_send_time = 0
+        self.send_rate = CLIENT_CONFIG['network']['send_rate_ms'] / 1000
+    
+    def handle_events(self):
+        """Handle pygame events"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            
+            elif event.type == pygame.KEYDOWN:
+                # Menu toggle
+                if event.key == pygame.K_z:
+                    self.menu.toggle()
+
+                # Skills UI
+                elif event.key == pygame.K_e:
+                    self.SKILLS_UI.toggle()
+                
+                # Auto-shoot toggle
+                elif event.key == pygame.K_f:
+                    self.auto_shoot = not self.auto_shoot
+                
+                # Auto-spin toggle
+                elif event.key == pygame.K_r:
+                    self.auto_spin = not self.auto_spin
+                
+                # Close menu
+                elif event.key == pygame.K_ESCAPE:
+                    if self.menu.active:
+                        self.menu.active = False
+                
+                # Login screen input
+                elif self.game_state == GameState.LOGIN:
+                    self.login_screen.handle_input(event)
+            
+            # Menu input
+            if self.game_state in [GameState.PLAYING, GameState.DEAD] and self.menu.active:
+                self.menu.handle_input(self.input_manager)
+    
+    def update(self):
+        """Update game logic"""
+        self.input_manager.update()
+        self.game_client.process_messages()
+        
+        if self.game_state == GameState.PLAYING:
+            self._update_gameplay()
+        
+        self.menu.handle_input(self.input_manager)
+    
+    def _update_gameplay(self):
+        """Update gameplay"""
+        if self.player_id not in self.game_client.players:
+            return
+        
+        self.player_local = self.game_client.players[self.player_id].to_dict() if hasattr(
+            self.game_client.players[self.player_id], 'to_dict') else None
+        
+        # Get movement input
+        direction = self.input_manager.get_direction()
+        angle = self.input_manager.get_mouse_angle()
+        
+        # Send movement
+        current_time = time.time()
+        if current_time - self.last_send_time > self.send_rate:
+            asyncio.create_task(
+                self.game_client.send_move(direction.x, direction.y)
+            )
+            self.last_send_time = current_time
+        
+        # Auto-shoot
+        if self.auto_shoot:
+            asyncio.create_task(self.game_client.send_shoot(angle))
+        elif self.input_manager.is_pressed('shoot'):
+            asyncio.create_task(self.game_client.send_shoot(angle))
+        
+        # Auto-spin
+        if self.auto_spin:
+            spin_angle = math.sin(time.time() * 2) * math.pi
+            asyncio.create_task(self.game_client.send_shoot(spin_angle))
+        
+        # Update camera
+        if self.player_local:
+            target_x = self.player_local['x']
+            target_y = self.player_local['y']
+            
+            smoothing = CLIENT_CONFIG['gameplay']['camera_smoothing']
+            self.camera_pos.x += (target_x - self.camera_pos.x) * smoothing
+            self.camera_pos.y += (target_y - self.camera_pos.y) * smoothing
+    
+    def draw(self):
+        """Draw game"""
+        if self.game_state == GameState.LOGIN:
+            self.login_screen.draw(screen)
+        
+        elif self.game_state in [GameState.PLAYING, GameState.DEAD, GameState.SPECTATING]:
+            # Get day/night info from server
+            brightness = 1.0
+            
+            # Draw world
+            player_list = list(self.game_client.players.values())
+            blob_list = list(self.game_client.blobs.values())
+            bullet_list = list(self.game_client.bullets.values())
+            
+            self.renderer.draw_world(screen, player_list, blob_list, bullet_list,
+                                    (self.camera_pos.x, self.camera_pos.y), brightness)
+            
+            # Draw HUD
+            if self.player_local:
+                self.renderer.draw_hud(screen, self.player_local, 
+                                      [p.to_dict() if hasattr(p, 'to_dict') else p 
+                                       for p in player_list], CLIENT_CONFIG)
+            
+            # Draw chat
+            self._draw_chat()
+            
+            # Draw auto-shoot/spin status
+            if self.auto_shoot:
+                auto_shoot_text = font_tiny.render("AUTO-SHOOT: ON (F)", True, (100, 255, 100))
+                screen.blit(auto_shoot_text, (SCREEN_WIDTH - 250, SCREEN_HEIGHT - 100))
+            
+            if self.auto_spin:
+                auto_spin_text = font_tiny.render("AUTO-SPIN: ON (R)", True, (100, 255, 100))
+                screen.blit(auto_spin_text, (SCREEN_WIDTH - 250, SCREEN_HEIGHT - 70))
+        
+        # Draw menu
+        self.menu.draw(screen)
+        
+        pygame.display.flip()
+    
+    def _draw_chat(self):
+        """Draw chat messages"""
+        y_offset = 20
+        for msg in self.game_client.chat_messages[-5:]:
+            text = f"{msg['username']}: {msg['message']}"
+            chat_text = font_tiny.render(text, True, (200, 200, 200))
+            screen.blit(chat_text, (20, y_offset))
+            y_offset += 20
+    
+    def run(self):
+        """Main game loop"""
+        while self.running:
+            self.handle_events()
+            self.update()
+            self.draw()
+            clock.tick(FPS)
+        
+        pygame.quit()
+
+# ==================== MAIN ====================
+def main():
+    game = Game()
+    game.run()
+
+if __name__ == "__main__":
+    main()

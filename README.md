@@ -1,0 +1,99 @@
+# My-Tank-Game
+- Make 2D plain (Giant map, 6 screens by 8 screens)
+    - Make Grid (80:45 (3600) Unit per screen)
+- Make 25 people per team (4 teams)
+    - Red
+    - Blue
+    - Green
+    - Purple
+    - Gray(midlle zone no team)
+- Make player entity
+- Make player movement (wasd and arrow keys for looking)
+- Make NPCs (Not like bedrock skeletons)
+- Make obsticles (Walls)
+- Make the resource blobs
+    - circles
+    - trianges
+    - squares
+    - pentigons
+    - hexegons
+    - Heptagon
+    - Octagon
+    - Nonagon
+    - Decagon
+- Make the skill upgrade system
+    - Damage/Freeze Damage/Burn Damage
+    - Bullet Health/Slowdown/Burn/Ray Pass Through
+    - Bullet Speed/Freeze Range/Flame Range/Bullet Speed
+    - Fire Rate/Freeze Rate/Flame Rate/Cooldown
+    - Max Health
+    - Health Regen
+    - Tank Speed
+    - Body Damage
+- Make the tank upgrade system
+    - Basic
+        - Freeze
+            - Flame
+                - Multi Flame
+            - Rail
+                - Multi Rail
+            - Multi Freeze
+        - Sniper
+            - Scout
+            - OP Sniper
+        - Grinder
+            - Block
+            - Multi Block
+        - Spammer
+            - Multi
+            - OP Spammer
+- Make menu/hub
+    - red v blue
+    - red v blue v green v purple
+    - all v all
+    - tutorial
+    - login
+- Make ranks
+- Make resource configs
+- Chat
+
+  
+# NEW
+#My-Tank-Game
+- Make multiplayer
+- Make 25 people per team (4 teams + admin team)
+- Make tank images
+- Make NPCs (No aim bot, bots are not to OP, bots have configs)
+- Make obsticles (Walls) (Random) (Make config)
+- Make the resource blobs (Have made configs, but need random spawn mechanic)
+    - circles
+    - trianges
+    - squares
+    - pentigons
+    - hexagons
+    - Heptagon
+    - Octagon
+    - Nonagon
+    - Decagon
+- Make the skill upgrade system (Keyboard.E) (have made config)
+- Make the tank upgrade system (Keyboard.E) (have made config)
+- Make menu/hub (Keyboard.E) (also need to make config)
+    - red v blue
+    - red v blue v green v purple
+    - all v all (only yourself blue and everyone else red (works like this for all players))
+    - tutorial
+    - login/logout
+    - tank upgrade
+    - skill upgrade
+    - ranks
+    - resume
+- Make ranks (Keyboard.E) (also need to make config)
+- Chat ( Keyboard. \ or / or Keyboard.C )
+- Make auto-spin (Keyboard.R) (also need to make config)
+- Make auto-shoot (Keyboard.Q) (also need to make config)
+- Need to make Keyboard config file, "Button_Config.json"
+- Make after kill get 1/4 amount of their rank and after death loss 1/4 amount of your rank.
+- Make cheat codes
+
+
+# please add client cmds through websocket and chat then add cmd handling, add respawn, add player death tracking, add the different tank types with different stats (including upgrades and different abilities/bullets) and upgrades handler, add more teams handling (including team-based scoring and choice (client asks then server gives options thing normal things continue)), add a lobby system for players to join before starting the game, add a matchmaking system, add game modes, add voting for game modes if server has it enabled, add for if voting for game modes is disabled have all games available on one server(one server multiple worlds), add a spectator mode for players to watch games without participating, add a server website(no game just interface), add admin commands for managing the server and players, add anti-cheat measures to prevent cheating and hacking, add a database to store player data, add chat server broadcasting handler (server send messages to chat), add the upgrade system for skills and tanks, add login system (only on separate login server/program, and separate port), add daily rewards, add tournament system/game modes, add more tanks, add a tank/upgrade index, add any more features you want, have any repeated server to client chat messages be in a msg.json, add better ranking system, do day night cycle and handler.
