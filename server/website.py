@@ -5,7 +5,7 @@ import jwt
 import json
 from datetime import datetime, timedelta
 from functools import wraps
-host_ip = "172.22.97.164" #input("Enter the IP address of the host: ")
+host_ip = "0.0.0.0" #input("Enter the IP address of the host: ")
 # ==================== CONFIG ====================
 JWT_SECRET = "q1w2e3r4t5y6-secret-key-@#$!"
 JWT_ALGORITHM = "HS256"
@@ -198,4 +198,4 @@ def admin_unban_user():
 
 # ==================== RUN ====================
 if __name__ == '__main__':
-    app.run(debug=True, host=host_ip, port=5000)
+    app.run(debug=True, host=host_ip, port=5001)

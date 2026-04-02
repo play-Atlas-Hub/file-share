@@ -135,4 +135,4 @@ class GameClient {
 }
 
 // Initialize game client
-const gameClient = new GameClient('ws://172.22.97.164:8765', 'ws://172.22.97.164:8766');
+const gameClient = new GameClient('ws://0.0.0.0:8765', 'ws://0.0.0.0:8766');

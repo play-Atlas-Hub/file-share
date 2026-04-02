@@ -481,7 +481,7 @@
             submitBtn.disabled = true;
 
             try {
-                const ws = new WebSocket('ws://172.22.97.164:8766');
+                const ws = new WebSocket('ws://0.0.0.0:8766');
 
                 ws.onopen = () => {
                     ws.send(JSON.stringify({
