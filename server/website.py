@@ -44,19 +44,19 @@ def login_required(f):
 
 # ==================== ROUTES ====================
 
-@app.route('/')
+@app.route('website/templates/index.html')
 def index():
     return render_template('index.html')
 
-@app.route('/login')
+@app.route('website/templates/login.html')
 def login_page():
     return render_template('login.html')
 
-@app.route('/register')
+@app.route('website/templates/register.html')
 def register_page():
     return render_template('register.html')
 
-@app.route('/dashboard')
+@app.route('website/templates/dashboard.html')
 @login_required
 def dashboard():
     return render_template('dashboard.html')
