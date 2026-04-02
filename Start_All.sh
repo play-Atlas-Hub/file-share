@@ -6,9 +6,9 @@
 
 set -e
 
-echo "What is the path to your TANK_GAME directory? (Press Enter for current directory)"
-read REPLY
-cd $REPLY/TANK_GAME/
+#echo "What is the path to your TANK_GAME directory? (Press Enter for current directory)"
+#read REPLY
+#cd $REPLY/TANK_GAME/
 
 # ==================== COLORS & FORMATTING ====================
 RED='\033[0;31m'
