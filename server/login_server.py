@@ -11,7 +11,7 @@ from functools import wraps
 # ==================== CONFIG ====================
 LOGIN_HOST = "0.0.0.0"
 LOGIN_PORT = 8766
-JWT_SECRET = "your-super-secret-key-change-this-in-production"
+JWT_SECRET = "q1w2e3r4t5y6-secret-key-@#$!"
 JWT_ALGORITHM = "HS256"
 TOKEN_EXPIRY_MINUTES = 60
 

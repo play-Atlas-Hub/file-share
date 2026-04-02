@@ -117,7 +117,7 @@ ADMIN_CREDENTIALS = CONFIG['admin']['credentials']
 ADMIN_IPS = CONFIG['admin']['allowed_ips']
 
 # JWT
-JWT_SECRET = "your-super-secret-key-change-this-in-production"
+JWT_SECRET = "q1w2e3r4t5y6-secret-key-@#$!"
 JWT_ALGORITHM = "HS256"
 TOKEN_EXPIRY_MINUTES = 60
 
