@@ -822,8 +822,8 @@ async def handle_login_client(websocket, path):
                 await websocket.send(json.dumps({"success": False, "error": "Missing fields"}))
                 return
             
-            if len(username) < 3 or len(username) > 20:
-                await websocket.send(json.dumps({"success": False, "error": "Username must be 3-20 characters"}))
+            if len(username) < 6 or len(username) > 20:
+                await websocket.send(json.dumps({"success": False, "error": "Username must be 6-20 characters"}))
                 return
             
             if len(password) < 6:

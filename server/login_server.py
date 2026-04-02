@@ -137,8 +137,8 @@ async def handle_register(data):
     if not username or not email or not password:
         return {"success": False, "error": "Missing fields"}
     
-    if len(username) < 3 or len(username) > 20:
-        return {"success": False, "error": "Username must be 3-20 characters"}
+    if len(username) < 6 or len(username) > 20:
+        return {"success": False, "error": "Username must be 6-20 characters"}
     
     if len(password) < 6:
         return {"success": False, "error": "Password must be at least 6 characters"}
