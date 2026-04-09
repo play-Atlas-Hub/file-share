@@ -1,201 +1,111 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
-import sqlite3
-import jwt
+import os
 import json
-from datetime import datetime, timedelta
-from functools import wraps
-host_ip = "0.0.0.0" #input("Enter the IP address of the host: ")
-# ==================== CONFIG ====================
-JWT_SECRET = "q1w2e3r4t5y6-secret-key-@#$!"
-JWT_ALGORITHM = "HS256"
 
-app = Flask(__name__)
-app.secret_key = "q1w2e3r4t5y6-session-key-@#$!"
+# Get the directory where this script is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
+
+# Create Flask app
+app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 CORS(app)
-
-# ==================== DATABASE ====================
-def get_db():
-    conn = sqlite3.connect('login_data.db')
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def get_game_db():
-    conn = sqlite3.connect('game_data.db')
-    conn.row_factory = sqlite3.Row
-    return conn
-
-# ==================== AUTH ====================
-def verify_token(token):
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return payload
-    except:
-        return None
-
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if not token or not verify_token(token):
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated
 
 # ==================== ROUTES ====================
 
-@app.route('website/templates/index.html')
+@app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('website/templates/login.html')
+@app.route('/login')
 def login_page():
     return render_template('login.html')
 
-@app.route('website/templates/register.html')
+@app.route('/register')
 def register_page():
     return render_template('register.html')
 
-@app.route('website/templates/dashboard.html')
-@login_required
+@app.route('/dashboard')
 def dashboard():
     return render_template('dashboard.html')
 
-@app.route('/api/stats', methods=['GET'])
-@login_required
-def get_stats():
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    payload = verify_token(token)
-    user_id = payload['user_id']
-    
-    db = get_game_db()
-    stats = db.execute(
-        'SELECT * FROM player_stats WHERE user_id = ?', (user_id,)
-    ).fetchone()
-    db.close()
-    
-    return jsonify(dict(stats) if stats else {})
-
-@app.route('/api/leaderboard', methods=['GET'])
-def get_leaderboard():
-    limit = request.args.get('limit', 100, type=int)
-    
-    db = get_game_db()
-    leaderboard = db.execute(
-        '''SELECT username, total_kills, total_money, current_rank
-           FROM player_stats ps
-           JOIN accounts a ON ps.user_id = a.user_id
-           ORDER BY total_kills DESC
-           LIMIT ?''',
-        (limit,)
-    ).fetchall()
-    db.close()
-    
-    return jsonify([dict(row) for row in leaderboard])
-
-@app.route('/api/match-history', methods=['GET'])
-@login_required
-def get_match_history():
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    payload = verify_token(token)
-    user_id = payload['user_id']
-    limit = request.args.get('limit', 20, type=int)
-    
-    db = get_game_db()
-    matches = db.execute(
-        '''SELECT * FROM match_history
-           WHERE players_stats LIKE ?
-           ORDER BY created_at DESC
-           LIMIT ?''',
-        (f'%{user_id}%', limit)
-    ).fetchall()
-    db.close()
-    
-    return jsonify([dict(row) for row in matches])
-
-@app.route('/api/tanks', methods=['GET'])
-def get_tanks():
-    with open('configs.json') as f:
-        config = json.load(f)
-    tanks = config['tanks']['list']
-    return jsonify(tanks)
-
-@app.route('/api/upgrades', methods=['GET'])
-def get_upgrades():
-    with open('configs.json') as f:
-        config = json.load(f)
-    upgrades = config['upgrades']['list']
-    return jsonify(upgrades)
-
-@app.route('/api/game-modes', methods=['GET'])
-def get_game_modes():
-    with open('configs.json') as f:
-        config = json.load(f)
-    modes = config['game_modes']['modes']
-    return jsonify(modes)
-
-@app.route('/api/server-status', methods=['GET'])
-def server_status():
-    return jsonify({
-        "status": "online",
-        "players_online": 0,  # Update from game server
-        "games_active": 0,     # Update from game server
-        "timestamp": datetime.now().isoformat()
-    })
-
-# ==================== ADMIN ROUTES ====================
-
 @app.route('/admin')
-@login_required
 def admin_panel():
     return render_template('admin.html')
 
+# ==================== API ROUTES ====================
+
+@app.route('/api/leaderboard', methods=['GET'])
+def get_leaderboard():
+    return jsonify([
+        {"username": "Player1", "total_kills": 100, "total_money": 5000, "current_rank": 5},
+        {"username": "Player2", "total_kills": 85, "total_money": 4200, "current_rank": 6},
+        {"username": "Player3", "total_kills": 72, "total_money": 3800, "current_rank": 7},
+    ])
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    return jsonify({
+        'total_kills': 0,
+        'total_deaths': 0,
+        'total_assists': 0,
+        'total_money': 0,
+        'total_games_played': 0,
+        'current_rank': 1,
+        'best_rank': 1,
+        'playtime_hours': 0,
+        'win_rate': 0.0
+    })
+
+@app.route('/api/tanks', methods=['GET'])
+def get_tanks():
+    return jsonify([
+        {"name": "Basic", "cost": 0, "min_rank": 1},
+        {"name": "Fire", "cost": 100, "min_rank": 2},
+        {"name": "Ice", "cost": 100, "min_rank": 2},
+    ])
+
+@app.route('/api/upgrades', methods=['GET'])
+def get_upgrades():
+    return jsonify([
+        {"name": "Speed Boost", "slot": "engine", "cost": 50},
+        {"name": "Shield", "slot": "armor", "cost": 75},
+        {"name": "Damage+", "slot": "weapon", "cost": 100},
+    ])
+
+@app.route('/api/game-modes', methods=['GET'])
+def get_game_modes():
+    return jsonify([
+        {"name": "Free For All", "max_players": 32},
+        {"name": "Team Battle", "max_players": 64},
+        {"name": "Capture Flag", "max_players": 16},
+    ])
+
+@app.route('/api/server-status', methods=['GET'])
+def server_status():
+    return jsonify({"status": "online", "players_online": 0})
+
 @app.route('/api/admin/users', methods=['GET'])
-@login_required
 def admin_get_users():
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    payload = verify_token(token)
-    # Check admin status
-    
-    db = get_db()
-    users = db.execute('SELECT * FROM accounts LIMIT 100').fetchall()
-    db.close()
-    
-    return jsonify([dict(row) for row in users])
+    return jsonify([
+        {"user_id": "1", "username": "Admin", "email": "admin@game.com", "is_banned": 0},
+        {"user_id": "2", "username": "Player1", "email": "player1@game.com", "is_banned": 0},
+    ])
 
-@app.route('/api/admin/ban-user', methods=['POST'])
-@login_required
-def admin_ban_user():
-    data = request.json
-    user_id = data.get('user_id')
-    duration_hours = data.get('duration_hours', 24)
-    reason = data.get('reason', 'No reason provided')
-    
-    db = get_db()
-    db.execute(
-        '''UPDATE accounts
-           SET banned = 1, ban_until = ?, ban_reason = ?
-           WHERE user_id = ?''',
-        (datetime.now() + timedelta(hours=duration_hours), reason, user_id)
-    )
-    db.commit()
-    db.close()
-    
-    return jsonify({"success": True})
+@app.errorhandler(404)
+def not_found(error):
+    return render_template('404.html'), 404
 
-@app.route('/api/admin/unban-user', methods=['POST'])
-@login_required
-def admin_unban_user():
-    data = request.json
-    user_id = data.get('user_id')
-    
-    db = get_db()
-    db.execute('UPDATE accounts SET banned = 0 WHERE user_id = ?', (user_id,))
-    db.commit()
-    db.close()
-    
-    return jsonify({"success": True})
+@app.errorhandler(500)
+def server_error(error):
+    return render_template('500.html'), 500
 
-# ==================== RUN ====================
 if __name__ == '__main__':
-    app.run(debug=True, host=host_ip, port=5001)
+    print("="*60)
+    print("Tank Battle Arena - Website")
+    print("="*60)
+    print("\nStarting website on http://localhost:5000")
+    print("\nPress Ctrl+C to stop\n")
+    
+    app.run(host='0.0.0.0', port=5001, debug=False)
