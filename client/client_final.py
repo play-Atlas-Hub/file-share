@@ -1052,6 +1052,12 @@ class Game:
                 if event.key == pygame.K_q:
                     self.running = False
                 
+                elif self.game_state in (GameState.LOGIN, GameState.REGISTER):
+                    if event.key == pygame.K_F2:
+                        self.auth_screen.set_mode(not self.auth_screen.is_register)
+                    else:
+                        self.auth_screen.handle_input(event)
+                
                 elif event.key == pygame.K_r:
                     if self.game_state == GameState.CONNECTING_TO_GAME and self.game_client.connection_error:
                         # Retry connection
@@ -1060,12 +1066,6 @@ class Game:
                         # Go back to login
                         self.game_state = GameState.LOGIN
                         self.error_screen = None
-                
-                elif self.game_state in (GameState.LOGIN, GameState.REGISTER):
-                    if event.key == pygame.K_F2:
-                        self.auth_screen.set_mode(not self.auth_screen.is_register)
-                    else:
-                        self.auth_screen.handle_input(event)
                 
                 elif self.game_state == GameState.PLAYING:
                     if event.key == pygame.K_z:
