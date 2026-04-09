@@ -3,7 +3,7 @@
     "width": 1280,
     "height": 720,
     "fullscreen": false,
-    "fps": 60,
+    "fps": 84,
     "grid_visible": true,
     "minimap_scale": 0.15,
     "minimap_position": "top-right"
@@ -26,8 +26,9 @@
     "zoom_out": "SCROLL_DOWN"
   },
   "gameplay": {
-    "auto_shoot_enabled": true,
-    "auto_spin_enabled": true,
+    "auto_shoot": true,
+    "auto_spin": false,
+    "mouse_control_angle": true,
     "show_names": true,
     "show_health_bars": true,
     "show_damage_numbers": true,
@@ -55,6 +56,10 @@
     "blob_triangle": [220, 150, 150],
     "blob_square": [150, 220, 150],
     "grid_color": [60, 60, 60],
+    "grid_quadrant_1": [80, 80, 80],
+    "grid_quadrant_2": [100, 100, 100],
+    "grid_quadrant_3": [120, 120, 120],
+    "grid_quadrant_4": [140, 140, 140],
     "day_color": [255, 255, 200],
     "night_color": [100, 100, 150]
   }

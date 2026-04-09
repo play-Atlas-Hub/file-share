@@ -5,7 +5,6 @@ import asyncio
 import math
 import sys
 import time
-import threading
 import hashlib
 from enum import Enum
 from typing import Dict, List, Tuple, Optional
@@ -15,6 +14,10 @@ start_team = int(input("Enter team number: "))
 # ==================== PYGAME SETUP ====================
 pygame.init()
 pygame.mixer.init()
+
+# Lock cursor
+pygame.mouse.set_visible(False)
+pygame.event.set_grab(True)
 
 # Load client config
 try:
@@ -241,16 +244,16 @@ class RemotePlayer:
             name_text = text_cache.get(self.username, font_tiny, (255, 255, 255))
             surface.blit(name_text, (int(screen_x - name_text.get_width()/2), int(screen_y - 35)))
         
-        # Draw health bar
+        # Draw health bar above name
         if CLIENT_CONFIG['gameplay']['show_health_bars']:
             health_width = 40
             health_height = 5
             health_ratio = max(0, self.health / self.max_health)
             pygame.draw.rect(surface, (100, 255, 100), 
-                           (int(screen_x - health_width/2), int(screen_y + 25), 
+                           (int(screen_x - health_width/2), int(screen_y - 50), 
                             int(health_width * health_ratio), health_height))
             pygame.draw.rect(surface, (255, 255, 255), 
-                           (int(screen_x - health_width/2), int(screen_y + 25), 
+                           (int(screen_x - health_width/2), int(screen_y - 50), 
                             health_width, health_height), 1)
 
 class Blob:
@@ -298,6 +301,17 @@ class Blob:
             pygame.draw.rect(surface, color, 
                            (int(screen_x - self.radius), int(screen_y - self.radius), 
                             self.radius*2, self.radius*2))
+        
+        # Draw health bar above blob
+        health_width = 30
+        health_height = 4
+        health_ratio = max(0, self.hp / self.max_hp)
+        pygame.draw.rect(surface, (100, 255, 100), 
+                       (int(screen_x - health_width/2), int(screen_y - self.radius - 10), 
+                        int(health_width * health_ratio), health_height))
+        pygame.draw.rect(surface, (255, 255, 255), 
+                       (int(screen_x - health_width/2), int(screen_y - self.radius - 10), 
+                        health_width, health_height), 1)
 
 class Bullet:
     """Projectile in the game"""
@@ -349,6 +363,14 @@ class Menu:
                 MenuItem("Tutorial", self.show_tutorial),
                 MenuItem("Disconnect", self.disconnect),
                 MenuItem("Quit to Desktop", self.quit_game)
+            ],
+            'settings': [
+                MenuItem(f"Auto Shoot: {'On' if self.game.auto_shoot else 'Off'}", self.toggle_auto_shoot),
+                MenuItem(f"Auto Spin: {'On' if self.game.auto_spin else 'Off'}", self.toggle_auto_spin),
+                MenuItem(f"Mouse Control Angle: {'On' if self.game.mouse_control_angle else 'Off'}", self.toggle_mouse_angle),
+                MenuItem(f"Show Names: {'On' if CLIENT_CONFIG['gameplay']['show_names'] else 'Off'}", self.toggle_show_names),
+                MenuItem(f"Show Health Bars: {'On' if CLIENT_CONFIG['gameplay']['show_health_bars'] else 'Off'}", self.toggle_show_health),
+                MenuItem("Back", self.back_to_main)
             ]
         }
     
@@ -356,6 +378,9 @@ class Menu:
         """Toggle menu open/closed"""
         self.active = not self.active
         self.selected_option = 0
+        # Unlock cursor in menu
+        pygame.mouse.set_visible(self.active)
+        pygame.event.set_grab(not self.active)
     
     def handle_input(self, input_manager):
         """Handle menu input"""
@@ -421,7 +446,32 @@ class Menu:
         pass
     
     def show_settings(self):
-        pass
+        self.current_menu = 'settings'
+        self.selected_option = 0
+    
+    def toggle_auto_shoot(self):
+        self.game.auto_shoot = not self.game.auto_shoot
+        self.init_menus()
+    
+    def toggle_auto_spin(self):
+        self.game.auto_spin = not self.game.auto_spin
+        self.init_menus()
+    
+    def toggle_mouse_angle(self):
+        self.game.mouse_control_angle = not self.game.mouse_control_angle
+        self.init_menus()
+    
+    def toggle_show_names(self):
+        CLIENT_CONFIG['gameplay']['show_names'] = not CLIENT_CONFIG['gameplay']['show_names']
+        self.init_menus()
+    
+    def toggle_show_health(self):
+        CLIENT_CONFIG['gameplay']['show_health_bars'] = not CLIENT_CONFIG['gameplay']['show_health_bars']
+        self.init_menus()
+    
+    def back_to_main(self):
+        self.current_menu = 'main'
+        self.selected_option = 0
     
     def show_tutorial(self):
         pass
@@ -454,7 +504,7 @@ class Renderer:
         
         return grid_surface
     
-    def draw_world(self, surface, players, blobs, bullets, camera_pos, brightness):
+    def draw_world(self, surface, players, blobs, bullets, camera_pos, brightness, local_player=None, player_team=1):
         """Draw the game world"""
         surface.fill((20, 20, 20))
         
@@ -471,11 +521,9 @@ class Renderer:
         overlay.fill(blend_color)
         surface.blit(overlay, (0, 0))
         
-        # Draw grid
+        # Draw grid with quadrant colors
         if CLIENT_CONFIG['display']['grid_visible']:
-            grid_offset_x = -int(camera_pos[0]) % 50
-            grid_offset_y = -int(camera_pos[1]) % 50
-            surface.blit(self.grid_surface, (grid_offset_x, grid_offset_y))
+            self._draw_quadrant_grid(surface, camera_pos)
         
         # Draw all game objects
         for blob in blobs:
@@ -485,7 +533,102 @@ class Renderer:
             bullet.draw(surface, camera_pos)
         
         for player in players:
-            player.draw(surface, camera_pos, 1)
+            player.draw(surface, camera_pos, player_team)
+        
+        # Draw local player
+        if local_player:
+            self._draw_player(surface, local_player, camera_pos, player_team)
+    
+    def _draw_quadrant_grid(self, surface, camera_pos):
+        """Draw grid with quadrant-based colors"""
+        grid_size = 50
+        world_width = 9280  # Assuming from server
+        world_height = 9280
+        
+        # Draw vertical lines
+        for x in range(0, world_width + grid_size, grid_size):
+            screen_x = x - camera_pos[0] + SCREEN_WIDTH / 2
+            if -grid_size < screen_x < SCREEN_WIDTH + grid_size:
+                # Determine quadrant
+                if x < world_width / 2:
+                    if x < world_width / 4:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_1']
+                    else:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_2']
+                else:
+                    if x < 3 * world_width / 4:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_3']
+                    else:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_4']
+                pygame.draw.line(surface, color, (screen_x, 0), (screen_x, SCREEN_HEIGHT), 1)
+        
+        # Draw horizontal lines
+        for y in range(0, world_height + grid_size, grid_size):
+            screen_y = y - camera_pos[1] + SCREEN_HEIGHT / 2
+            if -grid_size < screen_y < SCREEN_HEIGHT + grid_size:
+                # Same quadrant logic
+                if y < world_height / 2:
+                    if y < world_height / 4:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_1']
+                    else:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_2']
+                else:
+                    if y < 3 * world_height / 4:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_3']
+                    else:
+                        color = CLIENT_CONFIG['colors']['grid_quadrant_4']
+                pygame.draw.line(surface, color, (0, screen_y), (SCREEN_WIDTH, screen_y), 1)
+    
+    def _draw_player(self, surface, player, camera_pos, player_team):
+        """Draw a player dict (for local player)"""
+        if not player.get('alive', True):
+            return
+        
+        screen_x = player['x'] - camera_pos[0] + SCREEN_WIDTH/2
+        screen_y = player['y'] - camera_pos[1] + SCREEN_HEIGHT/2
+        
+        if screen_x < -100 or screen_x > SCREEN_WIDTH + 100 or \
+           screen_y < -100 or screen_y > SCREEN_HEIGHT + 100:
+            return
+        
+        # Determine color based on team
+        if player.get('team', 1) == player_team:
+            color = (100, 255, 100)
+        else:
+            color = (255, 100, 100)
+        
+        # Draw tank body
+        radius = 15
+        pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), radius)
+        pygame.draw.circle(surface, (255, 255, 255), (int(screen_x), int(screen_y)), radius, 2)
+        
+        # Draw barrel/turret
+        angle = player.get('angle', 0)
+        barrel_length = 25
+        barrel_x = screen_x + math.cos(angle) * barrel_length
+        barrel_y = screen_y + math.sin(angle) * barrel_length
+        pygame.draw.line(surface, color, (screen_x, screen_y), 
+                        (barrel_x, barrel_y), 4)
+        
+        # Draw username
+        if CLIENT_CONFIG['gameplay']['show_names']:
+            username = player.get('username', 'Player')
+            name_text = text_cache.get(username, font_small, (255, 255, 255))
+            surface.blit(name_text, (screen_x - name_text.get_width()/2, screen_y - radius - 25))
+        
+        # Draw health bar above name
+        if CLIENT_CONFIG['gameplay']['show_health_bars']:
+            health = player.get('health', 100)
+            max_health = player.get('max_health', 100)
+            health_width = 30
+            health_height = 4
+            health_ratio = max(0, health / max_health)
+            pygame.draw.rect(surface, (100, 255, 100), 
+                           (int(screen_x - health_width/2), int(screen_y - radius - 35), 
+                            int(health_width * health_ratio), health_height))
+            pygame.draw.rect(surface, (255, 255, 255), 
+                           (int(screen_x - health_width/2), int(screen_y - radius - 35), 
+                            health_width, health_height), 1)
     
     def draw_hud(self, surface, player, all_players):
         """Draw heads-up display"""
@@ -600,6 +743,19 @@ class GameClient:
                 self.player_id = response['player_id']
                 self.server_config = response.get('config', {})
                 self.connected = True
+                
+                # Add local player to players dict
+                player_data = response.get('player', {})
+                self.players[self.player_id] = RemotePlayer(
+                    player_data.get('id', self.player_id),
+                    player_data.get('username', 'You'),
+                    player_data.get('x', 0),
+                    player_data.get('y', 0),
+                    player_data.get('team', 1),
+                    player_data.get('tank', 'Basic Tank'),
+                    player_data.get('rank', 1)
+                )
+                
                 print("[DEBUG] Successfully connected to game server!")
                 
                 # Start message receiver
@@ -728,6 +884,9 @@ class GameClient:
                     )
                 else:
                     self.blobs[blob_id].update(blob_data)
+                    # Remove dead blobs
+                    if self.blobs[blob_id].hp <= 0:
+                        del self.blobs[blob_id]
             
             # Update bullets
             self.bullets.clear()
@@ -770,14 +929,15 @@ class GameClient:
             if len(self.chat_messages) > 50:
                 self.chat_messages.pop(0)
     
-    async def send_move(self, vx: float, vy: float):
+    async def send_move(self, vx: float, vy: float, angle: float):
         """Send movement to server"""
         if self.game_ws and self.connected:
             try:
                 await self.game_ws.send(json.dumps({
                     'type': 'move',
                     'vx': vx,
-                    'vy': vy
+                    'vy': vy,
+                    'angle': angle
                 }))
             except:
                 pass
@@ -1031,12 +1191,15 @@ class Game:
         self.player_local = None
         self.player_local_id = None
         self.running = True
-        self.auto_shoot = CLIENT_CONFIG['gameplay']['auto_shoot_enabled']
-        self.auto_spin = CLIENT_CONFIG['gameplay']['auto_spin_enabled']
+        self.auto_shoot = CLIENT_CONFIG['gameplay']['auto_shoot']
+        self.auto_spin = CLIENT_CONFIG['gameplay']['auto_spin']
+        self.mouse_control_angle = CLIENT_CONFIG['gameplay']['mouse_control_angle']
+        self.manual_angle = 0
         self.last_send_time = 0
         self.send_rate = CLIENT_CONFIG['network']['send_rate_ms'] / 1000
         self.chat_input = ""
         self.chat_mode = False
+        self.start_team = start_team
         
         # Event loop
         self.loop = asyncio.new_event_loop()
@@ -1049,7 +1212,8 @@ class Game:
                 self.running = False
             
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_q:
+                if event.key == pygame.K_F12:
+                    self.game_client.disconnect()
                     self.running = False
                 
                 elif self.game_state in (GameState.LOGIN, GameState.REGISTER):
@@ -1068,27 +1232,39 @@ class Game:
                         self.error_screen = None
                 
                 elif self.game_state == GameState.PLAYING:
-                    if event.key == pygame.K_z:
-                        self.menu.toggle()
-                    elif event.key == pygame.K_f:
-                        self.auto_shoot = not self.auto_shoot
-                    elif event.key == pygame.K_r:
-                        self.auto_spin = not self.auto_spin
-                    elif event.key == pygame.K_ESCAPE:
-                        if self.menu.active:
-                            self.menu.active = False
-                    elif event.key == pygame.K_t:
-                        self.chat_mode = not self.chat_mode
-                    elif self.chat_mode and event.key == pygame.K_RETURN:
-                        if self.chat_input.strip():
-                            asyncio.create_task(self.game_client.send_chat(self.chat_input))
+                    if self.chat_mode:
+                        # Chat input mode
+                        if event.key == pygame.K_RETURN:
+                            if self.chat_input.strip():
+                                asyncio.create_task(self.game_client.send_chat(self.chat_input))
+                                self.chat_input = ""
+                            self.chat_mode = False
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.chat_input = self.chat_input[:-1]
+                        elif event.key == pygame.K_ESCAPE:
+                            self.chat_mode = False
                             self.chat_input = ""
-                        self.chat_mode = False
-                    elif self.chat_mode and event.key == pygame.K_BACKSPACE:
-                        self.chat_input = self.chat_input[:-1]
-                    elif self.chat_mode and event.unicode.isprintable():
-                        if len(self.chat_input) < 100:
+                        elif event.unicode.isprintable() and len(self.chat_input) < 100:
                             self.chat_input += event.unicode
+                    else:
+                        # Game controls
+                        if event.key == pygame.K_z:
+                            self.menu.toggle()
+                        elif event.key == pygame.K_f:
+                            self.auto_shoot = not self.auto_shoot
+                        elif event.key == pygame.K_r:
+                            self.auto_spin = not self.auto_spin
+                        elif event.key == pygame.K_g:
+                            self.mouse_control_angle = not self.mouse_control_angle
+                        elif event.key == pygame.K_LEFT:
+                            pass  # Continuous in update
+                        elif event.key == pygame.K_RIGHT:
+                            pass  # Continuous in update
+                        elif event.key == pygame.K_t:
+                            self.chat_mode = True
+                        elif event.key == pygame.K_ESCAPE:
+                            if self.menu.active:
+                                self.menu.active = False
     
     def update(self):
         """Update game logic"""
@@ -1109,17 +1285,31 @@ class Game:
         self.player_local = self.game_client.players[self.player_local_id]
         self.game_client.process_messages()
         
+        # Update camera
+        self.camera_pos.x = self.player_local['x']
+        self.camera_pos.y = self.player_local['y']
+        
         # Get input
         direction = self.input_manager.get_direction()
-        angle = self.input_manager.get_mouse_angle()
+        if self.mouse_control_angle:
+            angle = self.input_manager.get_mouse_angle()
+        else:
+            if self.auto_spin:
+                self.manual_angle += 0.1
+            if self.input_manager.is_pressed('left'):
+                self.manual_angle -= 0.05
+            if self.input_manager.is_pressed('right'):
+                self.manual_angle += 0.05
+            angle = self.manual_angle
         
-        # Send movement
-        current_time = time.time()
-        if current_time - self.last_send_time > self.send_rate:
-            asyncio.create_task(
-                self.game_client.send_move(direction.x, direction.y)
-            )
-            self.last_send_time = current_time
+        # Send movement with angle if not in chat mode
+        if not self.chat_mode:
+            current_time = time.time()
+            if current_time - self.last_send_time > self.send_rate:
+                asyncio.create_task(
+                    self.game_client.send_move(direction.x, direction.y, angle)
+                )
+                self.last_send_time = current_time
         
         # Handle shooting
         if not self.chat_mode and not self.menu.active:
@@ -1144,27 +1334,26 @@ class Game:
         print("[DEBUG] Attempting to connect to game server...")
         self.game_state = GameState.CONNECTING_TO_GAME
         self.connecting_screen = ConnectingScreen(self.game_client)
-        
-        def connect():
-            try:
-                result = self.loop.run_until_complete(
-                    self.game_client.connect_to_game(username, team=start_team)
-                )
-                if result:
-                    self.game_state = GameState.PLAYING
-                    self.player_local_id = self.game_client.player_id
-                    print("[DEBUG] Successfully connected to game!")
-                else:
-                    if not self.game_client.connection_error:
-                        self.game_client.connection_error = "Failed to connect to game server"
-                    self.game_state = GameState.CONNECTING_TO_GAME
-            except Exception as e:
-                print(f"[ERROR] Connection failed: {e}")
-                self.game_client.connection_error = str(e)
-                self.game_state = GameState.CONNECTING_TO_GAME
-        
-        thread = threading.Thread(target=connect, daemon=True)
-        thread.start()
+        asyncio.create_task(self._connect_to_game_async(username, self.start_team))
+    
+    async def _connect_to_game_async(self, username, team):
+        """Async connection to game server"""
+        try:
+            result = await self.game_client.connect_to_game(username, team)
+            if result:
+                self.game_state = GameState.PLAYING
+                self.player_local_id = self.game_client.player_id
+                print("[DEBUG] Successfully connected to game!")
+            else:
+                if not self.game_client.connection_error:
+                    self.game_client.connection_error = "Failed to connect to game server"
+                self.game_state = GameState.ERROR
+                self.error_screen = ErrorScreen(self.game_client.connection_error)
+        except Exception as e:
+            print(f"[ERROR] Connection failed: {e}")
+            self.game_client.connection_error = str(e)
+            self.game_state = GameState.ERROR
+            self.error_screen = ErrorScreen(str(e))
     
     def draw(self):
         """Draw game screen"""
@@ -1191,7 +1380,8 @@ class Game:
             
             brightness = self.game_client.day_night_info.get('brightness', 1.0)
             self.renderer.draw_world(screen, player_list, blob_list, bullet_list,
-                                    (self.camera_pos.x, self.camera_pos.y), brightness)
+                                    (self.camera_pos.x, self.camera_pos.y), brightness,
+                                    self.player_local, self.start_team)
             
             # Draw HUD
             if self.player_local:
@@ -1211,14 +1401,22 @@ class Game:
             
             # Draw status
             y_offset = SCREEN_HEIGHT - 100
-            if self.auto_shoot:
-                auto_shoot_text = text_cache.get("AUTO-SHOOT: ON (F)", font_tiny, (100, 255, 100))
-                screen.blit(auto_shoot_text, (SCREEN_WIDTH - 250, y_offset))
-                y_offset -= 30
+            mouse_control_status = "MOUSE" if self.mouse_control_angle else "KEYS"
+            mouse_control_color = (100, 255, 100) if self.mouse_control_angle else (150, 150, 150)
+            mouse_control_text = text_cache.get(f"ANGLE CONTROL: {mouse_control_status} (G)", font_tiny, mouse_control_color)
+            screen.blit(mouse_control_text, (SCREEN_WIDTH - 250, y_offset))
+            y_offset -= 30
 
-            if self.auto_spin:
-                auto_spin_text = text_cache.get("AUTO-SPIN: ON (R)", font_tiny, (100, 255, 100))
-                screen.blit(auto_spin_text, (SCREEN_WIDTH - 250, y_offset))
+            auto_shoot_status = "ON" if self.auto_shoot else "OFF"
+            auto_shoot_color = (100, 255, 100) if self.auto_shoot else (150, 150, 150)
+            auto_shoot_text = text_cache.get(f"AUTO-SHOOT: {auto_shoot_status} (F)", font_tiny, auto_shoot_color)
+            screen.blit(auto_shoot_text, (SCREEN_WIDTH - 250, y_offset))
+            y_offset -= 30
+
+            auto_spin_status = "ON" if self.auto_spin else "OFF"
+            auto_spin_color = (100, 255, 100) if self.auto_spin else (150, 150, 150)
+            auto_spin_text = text_cache.get(f"AUTO-SPIN: {auto_spin_status} (R)", font_tiny, auto_spin_color)
+            screen.blit(auto_spin_text, (SCREEN_WIDTH - 250, y_offset))
 
             if self.chat_mode:
                 chat_input_text = text_cache.get(f"Chat: {self.chat_input}_", font_small, (200, 255, 200))

@@ -153,15 +153,16 @@ class GameDatabase:
         c.execute('''CREATE TABLE IF NOT EXISTS accounts (
             user_id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
+            email TEXT,
+            password_hash TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP,
             is_banned INTEGER DEFAULT 0,
             ban_reason TEXT,
             ban_until TIMESTAMP,
             daily_reward_last_claimed TIMESTAMP,
-            daily_reward_streak INTEGER DEFAULT 0
+            daily_reward_streak INTEGER DEFAULT 0,
+            is_guest INTEGER DEFAULT 0
         )''')
         
         # Sessions table
@@ -593,8 +594,19 @@ async def broadcast(message, exclude_id=None, target_ids=None):
         except:
             dead_clients.append(player_id)
     
+    # Handle dead clients without calling disconnect_player to avoid recursion
     for player_id in dead_clients:
-        await disconnect_player(player_id)
+        if player_id in players:
+            player = players[player_id]
+            if player.lobby_id in lobbies:
+                lobbies[player.lobby_id].remove_player(player_id)
+            del players[player_id]
+        if player_id in clients:
+            try:
+                await clients[player_id].close()
+            except:
+                pass
+            del clients[player_id]
 
 async def broadcast_state():
     is_day, cycle_time, brightness = get_day_night_cycle()
@@ -637,6 +649,7 @@ async def handle_move(player_id, data):
     
     player.vx = vx
     player.vy = vy
+    player.angle = data.get('angle', player.angle)
     
     new_x = player.x + vx
     new_y = player.y + vy
@@ -818,7 +831,13 @@ async def handle_login_client(websocket, path):
             email = data.get('email', '').strip()
             password = data.get('password', '')
             
-            if not username or not email or not password:
+            is_guest = username.startswith('guest_')
+            
+            if not username:
+                await websocket.send(json.dumps({"success": False, "error": "Missing username"}))
+                return
+            
+            if not is_guest and (not email or not password):
                 await websocket.send(json.dumps({"success": False, "error": "Missing fields"}))
                 return
             
@@ -826,23 +845,30 @@ async def handle_login_client(websocket, path):
                 await websocket.send(json.dumps({"success": False, "error": "Username must be 6-20 characters"}))
                 return
             
-            if len(password) < 6:
+            if not is_guest and len(password) < 6:
                 await websocket.send(json.dumps({"success": False, "error": "Password must be at least 6 characters"}))
                 return
             
-            existing = DB.get_one('SELECT * FROM accounts WHERE username = ? OR email = ?',
-                                 (username, email))
+            existing = DB.get_one('SELECT * FROM accounts WHERE username = ?',
+                                 (username,))
             if existing:
-                await websocket.send(json.dumps({"success": False, "error": "Username or email already exists"}))
+                await websocket.send(json.dumps({"success": False, "error": "Username already exists"}))
                 return
             
+            if not is_guest and email:
+                existing_email = DB.get_one('SELECT * FROM accounts WHERE email = ?',
+                                           (email,))
+                if existing_email:
+                    await websocket.send(json.dumps({"success": False, "error": "Email already exists"}))
+                    return
+            
             user_id = str(uuid.uuid4())
-            password_hash = hash_password(password)
+            password_hash = hash_password(password) if not is_guest else ''
             
             try:
                 DB.execute(
-                    'INSERT INTO accounts (user_id, username, email, password_hash) VALUES (?, ?, ?, ?)',
-                    (user_id, username, email, password_hash)
+                    'INSERT INTO accounts (user_id, username, email, password_hash, is_guest) VALUES (?, ?, ?, ?, ?)',
+                    (user_id, username, email or '', password_hash, 1 if is_guest else 0)
                 )
                 
                 DB.execute(
@@ -863,15 +889,34 @@ async def handle_login_client(websocket, path):
             username = data.get('username', '').strip()
             password = data.get('password', '')
             
-            if not username or not password:
-                await websocket.send(json.dumps({"success": False, "error": "Missing credentials"}))
+            is_guest = username.startswith('guest_')
+            
+            if not username:
+                await websocket.send(json.dumps({"success": False, "error": "Missing username"}))
+                return
+            
+            if not is_guest and not password:
+                await websocket.send(json.dumps({"success": False, "error": "Missing password"}))
                 return
             
             user = DB.get_one('SELECT * FROM accounts WHERE username = ?', (username,))
             
             if not user:
-                await websocket.send(json.dumps({"success": False, "error": "Invalid credentials"}))
-                return
+                if is_guest:
+                    # Create guest account
+                    user_id = str(uuid.uuid4())
+                    DB.execute(
+                        'INSERT INTO accounts (user_id, username, email, password_hash, is_guest) VALUES (?, ?, ?, ?, ?)',
+                        (user_id, username, '', '', 1)
+                    )
+                    DB.execute(
+                        'INSERT INTO player_stats (user_id) VALUES (?)',
+                        (user_id,)
+                    )
+                    user = DB.get_one('SELECT * FROM accounts WHERE user_id = ?', (user_id,))
+                else:
+                    await websocket.send(json.dumps({"success": False, "error": "Invalid credentials"}))
+                    return
             
             if user['is_banned']:
                 await websocket.send(json.dumps({
@@ -880,7 +925,7 @@ async def handle_login_client(websocket, path):
                 }))
                 return
             
-            if hash_password(password) != user['password_hash']:
+            if not is_guest and hash_password(password) != user['password_hash']:
                 await websocket.send(json.dumps({"success": False, "error": "Invalid credentials"}))
                 return
             
@@ -1081,20 +1126,19 @@ async def handle_game_client(websocket, path):
 async def spawn_blobs_loop():
     global next_blob_id
     
-    blob_counts = defaultdict(int)
-    
     while True:
         try:
             await asyncio.sleep(BLOB_SPAWN_TIME)
             
-            blob_counts.clear()
+            blob_counts = defaultdict(int)
             for blob in blobs:
                 blob_counts[blob.type] += 1
             
             world_area = (WORLD_W // TILE_SIZE) * (WORLD_H // TILE_SIZE)
             max_total = int(world_area * MAX_BLOB_DENSITY)
             
-            if len(blobs) < max_total:
+            to_spawn = max(0, max_total - len(blobs))
+            for _ in range(to_spawn):
                 blob_type = random.choice(list(BLOB_TYPES.keys()))
                 x = random.randint(BULLET_RADIUS * 2, WORLD_W - BULLET_RADIUS * 2)
                 y = random.randint(BULLET_RADIUS * 2, WORLD_H - BULLET_RADIUS * 2)
@@ -1106,11 +1150,16 @@ async def spawn_blobs_loop():
 
 async def update_loop():
     last_state_update = 0
+    last_info_print = 0
     
     while True:
         try:
             await asyncio.sleep(1 / 60)
             current_time = time.time()
+            
+            if current_time - last_info_print > 10:
+                print(f"[INFO] Players online: {len(players)}, Blobs: {len(blobs)}, Bullets: {len(bullets)}")
+                last_info_print = current_time
             
             # Update bullets
             bullets_to_remove = []
@@ -1216,3 +1265,9 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nServers shutting down...")
+        # Clean up guest accounts
+        try:
+            DB.execute('DELETE FROM accounts WHERE is_guest = 1')
+            print("Guest accounts cleaned up.")
+        except Exception as e:
+            print(f"Error cleaning up guests: {e}")
