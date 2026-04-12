@@ -49,7 +49,6 @@ MAX_PLAYERS_PER_LOBBY = CONFIG['server']['max_players_per_lobby']
 # World
 WIDTH = CONFIG['world']['width']
 HEIGHT = CONFIG['world']['height']
-TILE_SIZE = CONFIG['world']['tile_size']
 WORLD_SCREENS_X = CONFIG['world']['screens_x']
 WORLD_SCREENS_Y = CONFIG['world']['screens_y']
 WORLD_W = WIDTH * WORLD_SCREENS_X
@@ -1095,11 +1094,15 @@ async def handle_game_client(websocket, path):
                 "bullet_radius": BULLET_RADIUS,
                 "bullet_speed": BULLET_SPEED,
                 "player_speed": PLAYER_SPEED,
-                "tile_size": TILE_SIZE,
                 "teams": NUM_TEAMS,
                 "game_modes": [m['name'] for m in GAME_MODES]
             }
         }))
+
+        await websocket.send(json.dumps({
+            "type": "server_configs",
+            }
+        ))
         
         # Broadcast player joined
         await broadcast({
@@ -1134,7 +1137,7 @@ async def spawn_blobs_loop():
             for blob in blobs:
                 blob_counts[blob.type] += 1
             
-            world_area = (WORLD_W // TILE_SIZE) * (WORLD_H // TILE_SIZE)
+            world_area = (WORLD_W) * (WORLD_H)
             max_total = int(world_area * MAX_BLOB_DENSITY)
             
             to_spawn = max(0, max_total - len(blobs))
@@ -1171,7 +1174,7 @@ async def update_loop():
                 if bullet in bullets:
                     bullets.remove(bullet)
             
-            # Blob-bullet collisions
+            # Blob-bullet collisions, add player to blob collisions
             blobs_to_remove = []
             for blob in list(blobs):
                 for bullet in list(bullets):
@@ -1201,7 +1204,7 @@ async def update_loop():
                     if not p2.alive:
                         continue
                     if distance(p1.x, p1.y, p2.x, p2.y) < PLAYER_RADIUS * 2:
-                        damage = 5
+                        damage = 5 # this should be based on tank stats and upgrades
                         p1.take_damage(damage, p2.id)
                         p2.take_damage(damage, p1.id)
             

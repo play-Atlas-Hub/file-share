@@ -9,12 +9,11 @@
     "verified_server_ip_list": ["76.155.233.10", "0.0.0.0"],
     "Resource_To_Currency_Conversion_Ratio": "5:3",
     "max_players": 256,
-    "max_players_per_lobby": 32
+    "max_players_per_lobby": 68
   },
   "world": {
     "width": 928,
     "height": 522,
-    "tile_size": 16,
     "screens_x": 10,
     "screens_y": 8,
     "day_night_cycle": {
@@ -43,7 +42,7 @@
   "bullet": {
     "speed": 3,
     "radius": 5,
-    "max_lifetime_seconds": 60,
+    "max_lifetime_seconds": 28,
     "decay_enabled": true
   },
   "blobs": {
@@ -103,7 +102,7 @@
           "body_damage": 12,
           "freeze_strength": 0.5
         },
-        "abilities": ["freeze_shot", "ice_barrier"]
+        "abilities": ["freeze_shot"]
       },
       {
         "name": "Flame Tank",
@@ -243,12 +242,12 @@
   "chat": {
     "enabled": true,
     "message_limit_per_second": 3,
-    "display_time_seconds": 5,
+    "display_time_seconds": 8,
     "max_message_length": 200,
     "profanity_filter": true
   },
   "daily_rewards": {
-    "enabled": true,
+    "enabled": false,
     "base_reward": 100,
     "login_streak_multiplier": 1.5,
     "max_streak_days": 30

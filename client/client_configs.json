@@ -6,6 +6,7 @@
     "fps": 84,
     "grid_visible": true,
     "minimap_scale": 0.15,
+    "minimap_size": 150,
     "minimap_position": "top-right"
   },
   "keyboard": {
@@ -56,11 +57,27 @@
     "blob_triangle": [220, 150, 150],
     "blob_square": [150, 220, 150],
     "grid_color": [60, 60, 60],
-    "grid_quadrant_1": [80, 80, 80],
-    "grid_quadrant_2": [100, 100, 100],
-    "grid_quadrant_3": [120, 120, 120],
-    "grid_quadrant_4": [140, 140, 140],
+    "grid_quadrant_1": [255, 0, 0],
+    "grid_quadrant_2": [0, 0, 255],
+    "grid_quadrant_3": [0, 255, 0],
+    "grid_quadrant_4": [128, 0, 128],
     "day_color": [255, 255, 200],
-    "night_color": [100, 100, 150]
+    "night_color": [100, 100, 150],
+    "team_1": [255, 0, 0],
+    "team_1_dark": [180, 0, 0],
+    "team_2": [0, 0, 255],
+    "team_2_dark": [0, 0, 180],
+    "team_3": [0, 255, 0],
+    "team_3_dark": [0, 180, 0],
+    "team_4": [128, 0, 128],
+    "team_4_dark": [100, 0, 100]
+  },
+  "teams": {
+    "list": [
+      {"id": 1, "name": "Team 1", "color": [255, 0, 0], "dark_color": [180, 0, 0], "quadrant": "Q1"},
+      {"id": 2, "name": "Team 2", "color": [0, 0, 255], "dark_color": [0, 0, 180], "quadrant": "Q2"},
+      {"id": 3, "name": "Team 3", "color": [0, 255, 0], "dark_color": [0, 180, 0], "quadrant": "Q3"},
+      {"id": 4, "name": "Team 4", "color": [128, 0, 128], "dark_color": [100, 0, 100], "quadrant": "Q4"}
+    ]
   }
 }

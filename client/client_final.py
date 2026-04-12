@@ -1,3 +1,4 @@
+import os
 import pygame
 import websockets
 import json
@@ -9,33 +10,67 @@ import hashlib
 from enum import Enum
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
-start_team = int(input("Enter team number: "))
+
+# Try to get team input, default to 1 if problem, need to add debug server change, and or to enable debug/admin login screen(not yet implemented to server?)
+try:
+    start_team = int(input("Enter team number (1-4): ") or "1")
+except (ValueError, EOFError):
+    start_team = 1
 
 # ==================== PYGAME SETUP ====================
 pygame.init()
 pygame.mixer.init()
 
 # Lock cursor
-pygame.mouse.set_visible(False)
 pygame.event.set_grab(True)
+pygame.mouse.set_visible(True)
 
-# Load client config
+# Load client config relative to this script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CLIENT_CONFIG_PATH = os.path.join(SCRIPT_DIR, 'client_configs.json')
 try:
-    with open('client_configs.json', 'r') as f:
+    with open(CLIENT_CONFIG_PATH, 'r') as f:
         CLIENT_CONFIG = json.load(f)
 except FileNotFoundError:
-    print("ERROR: client_configs.json not found!")
+    print(f"ERROR: {CLIENT_CONFIG_PATH} not found!")
     sys.exit(1)
 
-SCREEN_WIDTH = CLIENT_CONFIG['display']['width']
-SCREEN_HEIGHT = CLIENT_CONFIG['display']['height']
-FPS = CLIENT_CONFIG['display']['fps']
-FULLSCREEN = CLIENT_CONFIG['display']['fullscreen']
+# Load server index metadata
+SERVER_INDEX_DATA = server_config_message
+
+TANK_INDEX = SERVER_INDEX_DATA.get('tanks', {}).get('list', [])
+UPGRADE_COST = SERVER_INDEX_DATA.get('upgrades', {}).get('cost_per_upgrade', 20)
+SKILL_INDEX = SERVER_INDEX_DATA.get('upgrades', {}).get('list', [])
+RANK_INDEX = SERVER_INDEX_DATA.get('ranks', {}).get('thresholds', [])
+
+SCREEN_WIDTH = CLIENT_CONFIG.get('display', {}).get('width', 1280)
+SCREEN_HEIGHT = CLIENT_CONFIG.get('display', {}).get('height', 720)
+FPS = CLIENT_CONFIG.get('display', {}).get('fps', 60)
+FULLSCREEN = CLIENT_CONFIG.get('display', {}).get('fullscreen', False)
 
 flags = pygame.FULLSCREEN if FULLSCREEN else 0
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
 pygame.display.set_caption("Tank Battle Arena - Client")
 clock = pygame.time.Clock()
+
+# Utility helpers
+
+def get_team_color(team_id: int, dark: bool = False):
+    teams = CLIENT_CONFIG.get('teams', {}).get('list', [])
+    if 1 <= team_id <= len(teams):
+        team = teams[team_id - 1]
+        color = team.get('dark_color' if dark else 'color')
+        if isinstance(color, (list, tuple)) and len(color) == 3:
+            return tuple(color)
+    return (200, 200, 200)
+
+
+def get_player_attr(player, key, default=None):
+    if isinstance(player, dict):
+        return player.get(key, default)
+    if hasattr(player, key):
+        return getattr(player, key, default)
+    return default
 
 # Fonts
 font_large = pygame.font.Font(None, 48)
@@ -222,30 +257,27 @@ class RemotePlayer:
             return
         
         # Determine color based on team
-        if self.team == player_team:
-            color = tuple(CLIENT_CONFIG['colors']['player_teammate'])
-        else:
-            color = tuple(CLIENT_CONFIG['colors']['player_enemy'])
+        color = get_team_color(self.team)
         
         # Draw tank body
-        radius = 15
+        radius = SERVER_INDEX_DATA.get('player', {}).get('radius', 15)
         pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), radius)
         pygame.draw.circle(surface, (255, 255, 255), (int(screen_x), int(screen_y)), radius, 2)
         
         # Draw barrel/turret
-        barrel_length = 25
+        barrel_length = SERVER_INDEX_DATA.get('player', {}).get('barrel_length', 25)
         barrel_x = screen_x + math.cos(self.angle) * barrel_length
         barrel_y = screen_y + math.sin(self.angle) * barrel_length
         pygame.draw.line(surface, color, (screen_x, screen_y), 
                         (barrel_x, barrel_y), 4)
         
         # Draw username
-        if CLIENT_CONFIG['gameplay']['show_names']:
-            name_text = text_cache.get(self.username, font_tiny, (255, 255, 255))
+        if CLIENT_CONFIG.get('gameplay', {}).get('show_names', True):
+            name_text = text_cache.get(self.username, font_tiny, color)
             surface.blit(name_text, (int(screen_x - name_text.get_width()/2), int(screen_y - 35)))
         
         # Draw health bar above name
-        if CLIENT_CONFIG['gameplay']['show_health_bars']:
+        if CLIENT_CONFIG.get('gameplay', {}).get('show_health_bars', True):
             health_width = 40
             health_height = 5
             health_ratio = max(0, self.health / self.max_health)
@@ -301,6 +333,24 @@ class Blob:
             pygame.draw.rect(surface, color, 
                            (int(screen_x - self.radius), int(screen_y - self.radius), 
                             self.radius*2, self.radius*2))
+        elif self.type == 'pentagon':
+            # create handeler
+            pass
+        elif self.type == 'hexagon':
+            # create handeler
+            pass
+        elif self.type == 'heptagon':
+            # create handeler
+            pass
+        elif self.type == 'octagon':
+            # create handeler
+            pass
+        elif self.type == 'nonagon':
+            # create handeler
+            pass
+        elif self.type == 'decagon':
+            # create handeler
+            pass
         
         # Draw health bar above blob
         health_width = 30
@@ -329,14 +379,15 @@ class Bullet:
         screen_y = self.y - camera_pos[1] + SCREEN_HEIGHT/2
         
         if -50 < screen_x < SCREEN_WIDTH + 50 and -50 < screen_y < SCREEN_HEIGHT + 50:
-            pygame.draw.circle(surface, (255, 255, 100), (int(screen_x), int(screen_y)), self.radius)
+            pygame.draw.circle(surface, self.owner_id.team_id.team_color, (int(screen_x), int(screen_y)), self.radius)
 
 # ==================== MENU SYSTEM ====================
 class MenuItem:
     """Single menu item"""
-    def __init__(self, title, action=None):
+    def __init__(self, title, action=None, meta=None):
         self.title = title
         self.action = action
+        self.meta = meta
 
 class Menu:
     """Main menu system"""
@@ -345,7 +396,12 @@ class Menu:
         self.active = False
         self.current_menu = 'main'
         self.selected_option = 0
+        self.previewed_tank = None
+        self.previewed_skill = None
+        self.previewed_rank = None
         self.menus = {}
+        self.last_nav_time = 0.0
+        self.nav_delay = 0.18
         self.init_menus()
     
     def init_menus(self):
@@ -356,7 +412,8 @@ class Menu:
                 MenuItem("Tank Upgrades (Q)", self.show_tank_upgrades),
                 MenuItem("Skill Upgrades (E)", self.show_skill_upgrades),
                 MenuItem("Tank Index", self.show_tank_index),
-                MenuItem("Skill Index", self.show_skill_index),
+                MenuItem("Tank Menu", self.show_tank_index),
+                MenuItem("Skill Menu", self.show_skill_index),
                 MenuItem("Rank Index", self.show_rank_index),
                 MenuItem("Profile", self.show_profile),
                 MenuItem("Settings", self.show_settings),
@@ -365,20 +422,121 @@ class Menu:
                 MenuItem("Quit to Desktop", self.quit_game)
             ],
             'settings': [
-                MenuItem(f"Auto Shoot: {'On' if self.game.auto_shoot else 'Off'}", self.toggle_auto_shoot),
-                MenuItem(f"Auto Spin: {'On' if self.game.auto_spin else 'Off'}", self.toggle_auto_spin),
-                MenuItem(f"Mouse Control Angle: {'On' if self.game.mouse_control_angle else 'Off'}", self.toggle_mouse_angle),
-                MenuItem(f"Show Names: {'On' if CLIENT_CONFIG['gameplay']['show_names'] else 'Off'}", self.toggle_show_names),
-                MenuItem(f"Show Health Bars: {'On' if CLIENT_CONFIG['gameplay']['show_health_bars'] else 'Off'}", self.toggle_show_health),
+                MenuItem(f"Auto Shoot: {'On' if getattr(self.game, 'auto_shoot', False) else 'Off'}", self.toggle_auto_shoot),
+                MenuItem(f"Auto Spin: {'On' if getattr(self.game, 'auto_spin', False) else 'Off'}", self.toggle_auto_spin),
+                MenuItem(f"Mouse Control Angle: {'On' if getattr(self.game, 'mouse_control_angle', True) else 'Off'}", self.toggle_mouse_angle),
+                MenuItem(f"Show Names: {'On' if CLIENT_CONFIG.get('gameplay', {}).get('show_names', True) else 'Off'}", self.toggle_show_names),
+                MenuItem(f"Show Health Bars: {'On' if CLIENT_CONFIG.get('gameplay', {}).get('show_health_bars', True) else 'Off'}", self.toggle_show_health),
                 MenuItem("Back", self.back_to_main)
-            ]
+            ],
+            'tank_index': self.build_tank_INDEX_menu(),
+            'tank_menu': self.build_tank_BUY_menu(),
+            'skill_menu': self.build_skill_menu(),
+            'rank_index': self.build_rank_menu(),
+            'profile': self.build_profile_menu(),
+            'tutorial': self.build_tutorial_menu()
         }
+    
+    def build_tank_INDEX_menu(self):
+        items = [
+            MenuItem("=== TANK INDEX ===", None),
+            MenuItem("-" * 40, None)
+        ]
+        for tank in TANK_INDEX:
+            tank_name = tank.get('name', 'Unknown')
+            path_to_tank = tank.get('path', 'Unknown')
+            cost = tank.get('cost', 0)
+            min_rank = tank.get('min_rank', 1)
+            label = f"{tank_name} | Rank {min_rank} | Cost {cost}"
+            items.append(MenuItem(label, lambda t=tank: self.preview_tank(t), {'type': 'tank', 'tank': tank}))
+        items.extend([
+            MenuItem("-" * 40, None),
+            MenuItem("Back", self.back_to_main)
+        ])
+        return items
+    
+    def build_tank_BUY_menu(self):
+        items = [
+            MenuItem("=== TANK UPGRADES ===", None),
+            MenuItem("-" * 40, None)
+        ]
+        for tank in TANK_INDEX:
+            tank_name = tank.get('name', 'Unknown')
+            cost = tank.get('cost', 0)
+            min_rank = tank.get('min_rank', 1)
+            label = f"{tank_name} | Rank {min_rank} | Cost {cost}"
+            items.append(MenuItem(label, lambda t=tank: self.preview_tank(t), {'type': 'tank', 'tank': tank}))
+        items.extend([
+            MenuItem("-" * 40, None),
+            MenuItem("Buy Selected Tank (B)", self.buy_current_selection),
+            MenuItem("Back", self.back_to_main)
+        ])
+        return items
+
+    def build_skill_menu(self):
+        items = [
+            MenuItem("=== SKILL UPGRADES ===", None),
+            MenuItem("-" * 40, None)
+        ]
+        for upgrade in SKILL_INDEX:
+            upgrade_name = upgrade.get('name', 'Unknown')
+            slot = upgrade.get('slot', 'Unknown')
+            cost = upgrade.get('cost', UPGRADE_COST)
+            label = f"{upgrade_name} | Slot: {slot} | Cost: {cost}"
+            items.append(MenuItem(label, lambda u=upgrade: self.preview_skill(u), {'type': 'upgrade', 'upgrade': upgrade}))
+        items.extend([
+            MenuItem("-" * 40, None),
+            MenuItem("Buy Selected Upgrade (B)", self.buy_current_selection),
+            MenuItem("Back", self.back_to_main)
+        ])
+        return items
+
+    def build_rank_menu(self):
+        items = [
+            MenuItem("=== RANK INDEX ===", None),
+            MenuItem("-" * 40, None)
+        ]
+        for rank in RANK_INDEX:
+            rank_num = rank.get('rank', 1)
+            money = rank.get('required_money', 0)
+            kills = rank.get('required_kills', 0)
+            assists = rank.get('required_assists', 0)
+            label = f"Rank {rank_num} | Money {money} | Kills {kills} | Assists {assists}"
+            items.append(MenuItem(label, lambda r=rank: self.preview_rank(r), {'type': 'rank', 'rank': rank}))
+        items.append(MenuItem("Back", self.back_to_main))
+        return items
+
+    def build_profile_menu(self):
+        items = [
+            MenuItem("=== PROFILE ===", None),
+            MenuItem("-" * 40, None)
+        ]
+        for line in self.get_profile_info():
+            items.append(MenuItem(line, None))
+        items.append(MenuItem("Back", self.back_to_main))
+        return items
+
+    def build_tutorial_menu(self):
+        tutorial_lines = [
+            "=== TUTORIAL ===",
+            "- Use WASD to move.",
+            "- Aim with mouse or keyboard.",
+            "- Press F to toggle auto-shoot.",
+            "- Press R to toggle auto-spin.",
+            "- Use Q/E to open tank/skill menus.",
+            "- Press T to chat.",
+            "- Press Z to open the menu.",
+            "- Press B to buy selected tank/upgrade.",
+            "- Press ESC to close menus."
+        ]
+        items = [MenuItem(line, None) for line in tutorial_lines]
+        items.append(MenuItem("Back", self.back_to_main))
+        return items
     
     def toggle(self):
         """Toggle menu open/closed"""
         self.active = not self.active
         self.selected_option = 0
-        # Unlock cursor in menu
         pygame.mouse.set_visible(self.active)
         pygame.event.set_grab(not self.active)
     
@@ -387,14 +545,21 @@ class Menu:
         if not self.active:
             return
         
+        now = time.time()
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_UP]:
-            self.selected_option = (self.selected_option - 1) % len(self.menus[self.current_menu])
-        if keys[pygame.K_DOWN]:
-            self.selected_option = (self.selected_option + 1) % len(self.menus[self.current_menu])
+        if now - self.last_nav_time >= self.nav_delay:
+            if keys[pygame.K_UP]:
+                self.selected_option = (self.selected_option - 1) % len(self.menus[self.current_menu])
+                self.last_nav_time = now
+            elif keys[pygame.K_DOWN]:
+                self.selected_option = (self.selected_option + 1) % len(self.menus[self.current_menu])
+                self.last_nav_time = now
+            elif keys[pygame.K_ESCAPE] and self.current_menu != 'main':
+                self.back_to_main()
+                self.last_nav_time = now
         if keys[pygame.K_RETURN]:
-            item = self.menus[self.current_menu][self.selected_option]
-            if item.action:
+            item = self.get_selected_item()
+            if item and item.action:
                 item.action()
     
     def draw(self, surface):
@@ -402,84 +567,235 @@ class Menu:
         if not self.active:
             return
         
-        # Semi-transparent overlay
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        overlay.set_alpha(200)
+        overlay.set_alpha(220)
         overlay.fill((0, 0, 0))
         surface.blit(overlay, (0, 0))
         
-        # Menu title
         title_text = text_cache.get(f"MENU - {self.current_menu.upper()}", font_large, (100, 255, 100))
         surface.blit(title_text, (SCREEN_WIDTH//2 - title_text.get_width()//2, 50))
         
-        # Menu options
+        menu_items = self.menus.get(self.current_menu, [])
+        start_index = max(0, self.selected_option - 5)
+        end_index = min(len(menu_items), start_index + 12)
         y_offset = 150
-        for i, item in enumerate(self.menus[self.current_menu]):
+        for i in range(start_index, end_index):
+            item = menu_items[i]
             color = (100, 255, 100) if i == self.selected_option else (200, 200, 200)
             text = text_cache.get(item.title, font_medium, color)
-            surface.blit(text, (SCREEN_WIDTH//2 - text.get_width()//2, y_offset + i*50))
+            surface.blit(text, (60, y_offset + (i - start_index) * 40))
         
-        # Instructions
-        instructions = text_cache.get("↑/↓ Navigate | ENTER Select | ESC Close", font_tiny, (150, 150, 150))
+        if self.current_menu in ('tank_index', 'tank_menu', 'skill_menu', 'rank_index', 'profile', 'tutorial'):
+            self.draw_detail_panel(surface)
+
+        instructions_text = "UP/DOWN Navigate | ENTER Select/Preview | ESC Close"
+        if self.current_menu in ('tank_index', 'tank_menu', 'skill_menu'):
+            instructions_text = "UP/DOWN Navigate | ENTER Preview | B Buy | ESC Back"
+        instructions = text_cache.get(instructions_text, font_tiny, (150, 150, 150))
         surface.blit(instructions, (SCREEN_WIDTH//2 - instructions.get_width()//2, SCREEN_HEIGHT - 50))
     
-    # Menu callbacks
+    def draw_detail_panel(self, surface):
+        panel_x = SCREEN_WIDTH - 420
+        panel_y = 120
+        panel_width = 360
+        panel_height = SCREEN_HEIGHT - 180
+        panel = pygame.Surface((panel_width, panel_height))
+        panel.set_alpha(220)
+        panel.fill((20, 20, 20))
+        surface.blit(panel, (panel_x, panel_y))
+
+        y = panel_y + 20
+        title = text_cache.get("DETAILS", font_medium, (180, 255, 180))
+        surface.blit(title, (panel_x + 20, y))
+        y += 40
+
+        details = []
+        if self.current_menu == 'tank_index' and self.previewed_tank or self.selected_option:
+            tank = self.previewed_tank
+            details.append(f"Name: {tank.get('name', 'Unknown')}")
+            details.append(f"Type: {tank.get('type', 'N/A')}")
+            details.append(f"Cost: {tank.get('cost', 0)}")
+            details.append(f"Min Rank: {tank.get('min_rank', 1)}")
+            stats = tank.get('stats', {})
+            for stat_name, stat_value in stats.items():
+                details.append(f"{stat_name.replace('_', ' ').title()}: {stat_value}")
+            abilities = ', '.join(tank.get('abilities', []))
+            details.append(f"Abilities: {abilities}")
+            details.append("")
+        elif self.current_menu == 'tank_menu' and self.previewed_tank or self.selected_option:
+            tank = self.previewed_tank
+            details.append(f"Name: {tank.get('name', 'Unknown')}")
+            details.append(f"Type: {tank.get('type', 'N/A')}")
+            details.append(f"Cost: {tank.get('cost', 0)}")
+            details.append(f"Min Rank: {tank.get('min_rank', 1)}")
+            stats = tank.get('stats', {})
+            for stat_name, stat_value in stats.items():
+                details.append(f"{stat_name.replace('_', ' ').title()}: {stat_value}")
+            abilities = ', '.join(tank.get('abilities', []))
+            details.append(f"Abilities: {abilities}")
+            details.append("")
+            details.append("Press B to buy this tank.")
+        elif self.current_menu == 'skill_menu' and self.previewed_skill or self.selected_option:
+            upgrade = self.previewed_skill
+            details.append(f"Name: {upgrade.get('name', 'Unknown')}")
+            details.append(f"Slot: {upgrade.get('slot', 'Unknown')}")
+            details.append(f"Cost: {upgrade.get('cost', UPGRADE_COST)}")
+            details.append(f"Multiplier: {upgrade.get('multiplier', 1.0)}x")
+            details.append(f"Applies To: {', '.join(upgrade.get('applicable_tanks', []))}")
+            details.append("")
+            details.append("Press B to buy this upgrade.")
+        elif self.current_menu == 'rank_index' and self.previewed_rank or self.selected_option:
+            rank = self.previewed_rank
+            details.append(f"Rank: {rank.get('rank', 1)}")
+            details.append(f"Money: {rank.get('required_money', 0)}")
+            details.append(f"Kills: {rank.get('required_kills', 0)}")
+            details.append(f"Assists: {rank.get('required_assists', 0)}")
+            details.append("")
+            details.append("Ranks scale automatically beyond the defined thresholds.")
+        elif self.current_menu == 'profile':
+            for line in self.get_profile_info():
+                details.append(line)
+        elif self.current_menu == 'tutorial':
+            details.append("Use the arrow keys to move the cursor.")
+            details.append("Choose an item and press ENTER to preview.")
+            details.append("Press B to purchase the selected item.")
+            details.append("Press ESC to return to the main menu.")
+
+        for line in details:
+            text = text_cache.get(line, font_small, (220, 220, 220))
+            surface.blit(text, (panel_x + 20, y))
+            y += 28
+    
+    def get_selected_item(self):
+        items = self.menus.get(self.current_menu, [])
+        if 0 <= self.selected_option < len(items):
+            return items[self.selected_option]
+        return None
+
+    def get_profile_info(self):
+        info = []
+        local = self.game.player_local
+        if local and hasattr(local, 'username'):
+            info.append(f"Username: {local.username}")
+            info.append(f"Team: {local.team}")
+            info.append(f"Tank: {local.tank_name}")
+            info.append(f"Rank: {local.rank}")
+            info.append(f"Money: {local.money}")
+            info.append(f"Resources: {local.resource}")
+        else:
+            info.append("Not connected to a player yet.")
+            info.append("Login and join a game to see stats.")
+        return info
+
     def resume_game(self):
         self.active = False
-    
+
     def show_tank_upgrades(self):
-        pass
-    
+        self.show_tank_index()
+
     def show_skill_upgrades(self):
-        pass
-    
+        self.show_skill_index()
+
     def show_tank_index(self):
-        pass
-    
-    def show_skill_index(self):
-        pass
-    
+        self.current_menu = 'tank_index'
+        self.selected_option = 2 if len(self.menus.get('tank_index', [])) > 2 else 0
+        self.previewed_tank = TANK_INDEX[0] if TANK_INDEX else None
+        
+    def show_tank_menu(self):
+        self.current_menu = 'tank_menu'
+        self.selected_option = 2 if len(self.menus.get('tank_menu', [])) > 2 else 0
+        self.previewed_tank = TANK_MENU[0] if TANK_MENU else None
+
+    def show_skill_menu(self):
+        self.current_menu = 'skill_menu'
+        self.selected_option = 2 if len(self.menus.get('skill_index', [])) > 2 else 0
+        self.previewed_skill = SKILL_INDEX[0] if SKILL_INDEX else None
+
     def show_rank_index(self):
-        pass
-    
+        self.current_menu = 'rank_index'
+        self.selected_option = 2 if len(self.menus.get('rank_index', [])) > 2 else 0
+        self.previewed_rank = RANK_INDEX[0] if RANK_INDEX else None
+
     def show_profile(self):
-        pass
-    
+        self.current_menu = 'profile'
+        self.selected_option = 0
+        self.init_menus()
+
     def show_settings(self):
         self.current_menu = 'settings'
         self.selected_option = 0
-    
+        self.init_menus()
+
     def toggle_auto_shoot(self):
         self.game.auto_shoot = not self.game.auto_shoot
         self.init_menus()
-    
+
     def toggle_auto_spin(self):
         self.game.auto_spin = not self.game.auto_spin
         self.init_menus()
-    
+
     def toggle_mouse_angle(self):
         self.game.mouse_control_angle = not self.game.mouse_control_angle
         self.init_menus()
-    
+
     def toggle_show_names(self):
-        CLIENT_CONFIG['gameplay']['show_names'] = not CLIENT_CONFIG['gameplay']['show_names']
+        gameplay = CLIENT_CONFIG.setdefault('gameplay', {})
+        gameplay['show_names'] = not gameplay.get('show_names', True)
         self.init_menus()
-    
+
     def toggle_show_health(self):
-        CLIENT_CONFIG['gameplay']['show_health_bars'] = not CLIENT_CONFIG['gameplay']['show_health_bars']
+        gameplay = CLIENT_CONFIG.setdefault('gameplay', {})
+        gameplay['show_health_bars'] = not gameplay.get('show_health_bars', True)
         self.init_menus()
-    
+
+    def buy_current_selection(self):
+        selected = self.get_selected_item()
+        if selected and selected.meta:
+            meta = selected.meta
+            if meta.get('type') == 'tank':
+                self.buy_tank(meta['tank'])
+                return
+            if meta.get('type') == 'upgrade':
+                self.buy_upgrade(meta['upgrade'])
+                return
+        if self.current_menu == 'tank_menu' and self.previewed_tank:
+            self.buy_tank(self.previewed_tank)
+        elif self.current_menu == 'skill_menu' and self.previewed_skill:
+            self.buy_upgrade(self.previewed_skill)
+
+    def preview_tank(self, tank):
+        self.previewed_tank = tank
+
+    def preview_skill(self, upgrade):
+        self.previewed_skill = upgrade
+
+    def preview_rank(self, rank):
+        self.previewed_rank = rank
+
+    def buy_tank(self, tank):
+        if not tank:
+            return
+        if self.game.game_client.connected:
+            asyncio.create_task(self.game.game_client.send_buy_tank(tank.get('name')))
+
+    def buy_upgrade(self, upgrade):
+        if not upgrade:
+            return
+        if self.game.game_client.connected:
+            asyncio.create_task(self.game.game_client.send_buy_upgrade(upgrade.get('name')))
+
     def back_to_main(self):
         self.current_menu = 'main'
         self.selected_option = 0
-    
+
     def show_tutorial(self):
-        pass
-    
+        self.current_menu = 'tutorial'
+        self.selected_option = 0
+
     def disconnect(self):
         self.game.game_state = GameState.LOGIN
         self.game.game_client.disconnect()
-    
+
     def quit_game(self):
         self.game.running = False
 
@@ -495,7 +811,7 @@ class Renderer:
         """Create grid texture"""
         grid_surface = pygame.Surface((self.screen_width, self.screen_height))
         grid_surface.fill((20, 20, 20))
-        grid_size = 50
+        grid_size = CLIENT_CONFIG.get('display', {}).get('grid_size', 50)
         
         for x in range(0, self.screen_width, grid_size):
             pygame.draw.line(grid_surface, (60, 60, 60), (x, 0), (x, self.screen_height), 1)
@@ -522,7 +838,7 @@ class Renderer:
         surface.blit(overlay, (0, 0))
         
         # Draw grid with quadrant colors
-        if CLIENT_CONFIG['display']['grid_visible']:
+        if CLIENT_CONFIG.get('display', {}).get('grid_visible', True):
             self._draw_quadrant_grid(surface, camera_pos)
         
         # Draw all game objects
@@ -540,70 +856,83 @@ class Renderer:
             self._draw_player(surface, local_player, camera_pos, player_team)
     
     def _draw_quadrant_grid(self, surface, camera_pos):
-        """Draw grid with quadrant-based colors"""
-        grid_size = 50
-        world_width = 9280  # Assuming from server
-        world_height = 9280
-        
-        # Draw vertical lines
+        """Draw grid with team-based quadrant colors"""
+        grid_size = CLIENT_CONFIG.get('display', {}).get('grid_size', 50)
+        world_width = (SERVER_INDEX_DATA.get('world', {}).get('width', 928) *
+                       SERVER_INDEX_DATA.get('world', {}).get('screens_x', 10))
+        world_height = (SERVER_INDEX_DATA.get('world', {}).get('height', 522) *
+                        SERVER_INDEX_DATA.get('world', {}).get('screens_y', 8))
+        teams = CLIENT_CONFIG.get('teams', {}).get('list', [])
+
+        quad_colors = {
+            'Q1': get_team_color(1),
+            'Q2': get_team_color(2),
+            'Q3': get_team_color(3),
+            'Q4': get_team_color(4)
+        }
+        if len(teams) >= 4:
+            quad_colors = {
+                'Q1': tuple(teams[0].get('color', quad_colors['Q1'])),
+                'Q2': tuple(teams[1].get('color', quad_colors['Q2'])),
+                'Q3': tuple(teams[2].get('color', quad_colors['Q3'])),
+                'Q4': tuple(teams[3].get('color', quad_colors['Q4']))
+            }
+
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        half_w = world_width / 2
+        half_h = world_height / 2
+        quad_rects = [
+            (0, 0, half_w, half_h, quad_colors['Q1']),
+            (half_w, 0, half_w, half_h, quad_colors['Q2']),
+            (0, half_h, half_w, half_h, quad_colors['Q3']),
+            (half_w, half_h, half_w, half_h, quad_colors['Q4'])
+        ]
+
+        for qx, qy, qw, qh, color in quad_rects:
+            screen_x = qx - camera_pos[0] + SCREEN_WIDTH / 2
+            screen_y = qy - camera_pos[1] + SCREEN_HEIGHT / 2
+            rect = pygame.Rect(int(screen_x), int(screen_y), int(qw), int(qh))
+            if rect.colliderect(pygame.Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)):
+                pygame.draw.rect(overlay, (*color, 28), rect)
+        surface.blit(overlay, (0, 0))
+
+        grid_color = tuple(CLIENT_CONFIG.get('colors', {}).get('grid_color', [60, 60, 60]))
         for x in range(0, world_width + grid_size, grid_size):
             screen_x = x - camera_pos[0] + SCREEN_WIDTH / 2
             if -grid_size < screen_x < SCREEN_WIDTH + grid_size:
-                # Determine quadrant
-                if x < world_width / 2:
-                    if x < world_width / 4:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_1']
-                    else:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_2']
-                else:
-                    if x < 3 * world_width / 4:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_3']
-                    else:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_4']
-                pygame.draw.line(surface, color, (screen_x, 0), (screen_x, SCREEN_HEIGHT), 1)
-        
-        # Draw horizontal lines
+                pygame.draw.line(surface, grid_color, (screen_x, 0), (screen_x, SCREEN_HEIGHT), 1)
         for y in range(0, world_height + grid_size, grid_size):
             screen_y = y - camera_pos[1] + SCREEN_HEIGHT / 2
             if -grid_size < screen_y < SCREEN_HEIGHT + grid_size:
-                # Same quadrant logic
-                if y < world_height / 2:
-                    if y < world_height / 4:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_1']
-                    else:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_2']
-                else:
-                    if y < 3 * world_height / 4:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_3']
-                    else:
-                        color = CLIENT_CONFIG['colors']['grid_quadrant_4']
-                pygame.draw.line(surface, color, (0, screen_y), (SCREEN_WIDTH, screen_y), 1)
+                pygame.draw.line(surface, grid_color, (0, screen_y), (SCREEN_WIDTH, screen_y), 1)
     
-    def _draw_player(self, surface, player, camera_pos, player_team):
-        """Draw a player dict (for local player)"""
-        if not player.get('alive', True):
+    def _draw_player(self, surface, player, camera_pos, player_team, rotation):
+        """Draw a player dict or object (for local player)"""
+        alive = get_player_attr(player, 'alive', True)
+        if not alive:
             return
         
-        screen_x = player['x'] - camera_pos[0] + SCREEN_WIDTH/2
-        screen_y = player['y'] - camera_pos[1] + SCREEN_HEIGHT/2
+        x = get_player_attr(player, 'x', 0)
+        y = get_player_attr(player, 'y', 0)
+        screen_x = x - camera_pos[0] + SCREEN_WIDTH/2
+        screen_y = y - camera_pos[1] + SCREEN_HEIGHT/2
         
         if screen_x < -100 or screen_x > SCREEN_WIDTH + 100 or \
            screen_y < -100 or screen_y > SCREEN_HEIGHT + 100:
             return
         
-        # Determine color based on team
-        if player.get('team', 1) == player_team:
-            color = (100, 255, 100)
+        player_team_id = get_player_attr(player, 'team', 1)
+        if player_team_id == player_team:
+            color = get_team_color(player_team_id, dark=True)
         else:
-            color = (255, 100, 100)
+            color = get_team_color(player_team_id)
         
-        # Draw tank body
         radius = 15
         pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), radius)
         pygame.draw.circle(surface, (255, 255, 255), (int(screen_x), int(screen_y)), radius, 2)
         
         # Draw barrel/turret
-        angle = player.get('angle', 0)
+        angle = get_player_attr(player, 'angle', 0)
         barrel_length = 25
         barrel_x = screen_x + math.cos(angle) * barrel_length
         barrel_y = screen_y + math.sin(angle) * barrel_length
@@ -611,15 +940,15 @@ class Renderer:
                         (barrel_x, barrel_y), 4)
         
         # Draw username
-        if CLIENT_CONFIG['gameplay']['show_names']:
-            username = player.get('username', 'Player')
-            name_text = text_cache.get(username, font_small, (255, 255, 255))
+        if CLIENT_CONFIG.get('gameplay', {}).get('show_names', True):
+            username = get_player_attr(player, 'username', 'Player')
+            name_text = text_cache.get(username, font_small, color)
             surface.blit(name_text, (screen_x - name_text.get_width()/2, screen_y - radius - 25))
         
         # Draw health bar above name
-        if CLIENT_CONFIG['gameplay']['show_health_bars']:
-            health = player.get('health', 100)
-            max_health = player.get('max_health', 100)
+        if CLIENT_CONFIG.get('gameplay', {}).get('show_health_bars', True):
+            health = get_player_attr(player, 'health', 100)
+            max_health = get_player_attr(player, 'max_health', 100)
             health_width = 30
             health_height = 4
             health_ratio = max(0, health / max_health)
@@ -654,8 +983,11 @@ class Renderer:
         
         # Stats on left side
         y = SCREEN_HEIGHT - 120
-        score_text = text_cache.get(f"Score: {player.get('score', 0)}", font_small, (100, 255, 100))
-        surface.blit(score_text, (20, y))
+        score_text = text_cache.get(f"Resources: {player.get('Resources', 0)}", font_small, (100, 255, 100))
+        surface.blit(resource_text, (20, y - 40))
+        
+        score_text = text_cache.get(f"Money: {player.get('Money', 0)}", font_small, (100, 255, 100))
+        surface.blit(money_text, (20, y))
         
         rank_text = text_cache.get(f"Rank: {player.get('rank', 1)}", font_small, (100, 255, 100))
         surface.blit(rank_text, (20, y + 40))
@@ -663,12 +995,12 @@ class Renderer:
         tank_text = text_cache.get(f"Tank: {player.get('tank', 'Basic')}", font_small, (100, 100, 255))
         surface.blit(tank_text, (20, y + 80))
         
-        # Draw minimap
+        # Draw minimap, need to add color for in game quadrents put to minimap
         self.draw_minimap(surface, player, all_players)
     
     def draw_minimap(self, surface, player, all_players):
         """Draw minimap in corner"""
-        minimap_size = 150
+        minimap_size = CLIENT_CONFIG.get('display').get('minimap_size', 150)
         minimap_x = SCREEN_WIDTH - minimap_size - 10
         minimap_y = 10
         
@@ -715,7 +1047,7 @@ class GameClient:
     
     async def connect_to_game(self, username: str, team: int = 1) -> bool:
         """Connect to game server"""
-        game_url = CLIENT_CONFIG['network']['game_server']
+        game_url = CLIENT_CONFIG.get('network', {}).get('game_server', 'ws://127.0.0.1:8765')
         
         try:
             print(f"[DEBUG] Connecting to game server at {game_url}")
@@ -755,12 +1087,14 @@ class GameClient:
                     player_data.get('tank', 'Basic Tank'),
                     player_data.get('rank', 1)
                 )
-                
+
                 print("[DEBUG] Successfully connected to game server!")
                 
                 # Start message receiver
                 asyncio.create_task(self._receive_messages())
                 return True
+            elif response['type'] == 'server_config':
+                server_config_message = (response)
             else:
                 self.connection_error = "Invalid server response"
                 return False
@@ -776,7 +1110,7 @@ class GameClient:
         
     async def login(self, username: str, password: str) -> bool:
         """Authenticate with the login server"""
-        login_url = CLIENT_CONFIG['network']['login_server']
+        login_url = CLIENT_CONFIG.get('network', {}).get('login_server', 'ws://127.0.0.1:8766')
 
         try:
             async with websockets.connect(login_url, ping_interval=20, ping_timeout=12) as ws:
@@ -806,7 +1140,7 @@ class GameClient:
 
     async def register(self, username: str, email: str, password: str) -> bool:
         """Register a new account with the login server"""
-        login_url = CLIENT_CONFIG['network']['login_server']
+        login_url = CLIENT_CONFIG.get('network', {}).get('login_server', 'ws://127.0.0.1:8766')
 
         try:
             async with websockets.connect(login_url, ping_interval=20, ping_timeout=12) as ws:
@@ -911,7 +1245,7 @@ class GameClient:
                     player_data['id'], player_data['username'],
                     player_data['x'], player_data['y'],
                     player_data['team'], player_data['tank'],
-                    player_data.get('rank', 1)
+                    player_data.get('rank')
                 )
         
         elif msg_type == 'player_left':
@@ -944,7 +1278,7 @@ class GameClient:
     
     async def send_shoot(self, angle: float):
         """Send shoot to server"""
-        if self.game_ws and self.connected:
+        if self.game_ws and self.connected and (time_since_last_shot() > (SERVER_INDEX_DATA.get('player', {}).get('shot_cooldown', 0.5) + current_skill_fire_rate_multiplier_level)):
             try:
                 await self.game_ws.send(json.dumps({
                     'type': 'shoot',
@@ -963,12 +1297,59 @@ class GameClient:
                 }))
             except:
                 pass
-    
+
+    async def send_command(self, command: str): # need to add: replace("/", "")
+        """Send chat message"""
+        if self.game_ws and self.connected:
+            try:
+                await self.game_ws.send(json.dumps({
+                    'type': 'command',
+                    'command': command
+                }))
+            except:
+                pass
+
+    async def send_buy_tank(self, tank_name: str):
+        """Request a tank purchase from the server"""
+        if self.game_ws and self.connected:
+            try:
+                await self.game_ws.send(json.dumps({
+                    'type': 'buy_tank',
+                    'tank_name': tank_name
+                }))
+            except:
+                pass
+
+    async def send_buy_upgrade(self, upgrade_name: str):
+        """Request an upgrade purchase from the server"""
+        if self.game_ws and self.connected:
+            try:
+                await self.game_ws.send(json.dumps({
+                    'type': 'buy_upgrade',
+                    'upgrade_name': upgrade_name
+                }))
+            except:
+                pass
+
     def disconnect(self):
         """Disconnect from server"""
         self.connected = False
         if self.game_ws:
-            asyncio.create_task(self.game_ws.close())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop is not None:
+                asyncio.create_task(self.game_ws.close())
+            elif hasattr(self, 'loop') and self.loop and not self.loop.is_closed():
+                self.loop.create_task(self.game_ws.close())
+            else:
+                try:
+                    asyncio.run(self.game_ws.close())
+                except Exception:
+                    pass
+            self.game_ws = None
 
 # ==================== AUTH SCREEN ====================
 class AuthScreen:
@@ -1119,7 +1500,7 @@ class AuthScreen:
             surface.blit(connecting_text, (SCREEN_WIDTH // 2 - connecting_text.get_width() // 2, SCREEN_HEIGHT - 110))
 
         instructions = text_cache.get(
-            "TAB: Switch field | ENTER: Submit | F2: Toggle Login/Register",
+            "TAB: Switch field | ENTER: Submit | F2: Toggle Login/Register | F3: Guest(!COMMING SOON!)",
             font_tiny, (150, 150, 150)
         )
         surface.blit(instructions, (SCREEN_WIDTH // 2 - instructions.get_width() // 2, SCREEN_HEIGHT - 50))
@@ -1181,7 +1562,6 @@ class Game:
         self.game_client = GameClient()
         self.input_manager = InputManager(CLIENT_CONFIG)
         self.renderer = Renderer(SCREEN_WIDTH, SCREEN_HEIGHT)
-        self.menu = Menu(self)
         self.auth_screen = AuthScreen(self.game_client)
         self.connecting_screen = None
         self.error_screen = None
@@ -1191,15 +1571,19 @@ class Game:
         self.player_local = None
         self.player_local_id = None
         self.running = True
-        self.auto_shoot = CLIENT_CONFIG['gameplay']['auto_shoot']
-        self.auto_spin = CLIENT_CONFIG['gameplay']['auto_spin']
-        self.mouse_control_angle = CLIENT_CONFIG['gameplay']['mouse_control_angle']
+        gameplay_config = CLIENT_CONFIG.get('gameplay', {})
+        self.auto_shoot = gameplay_config.get('auto_shoot', False)
+        self.auto_spin = gameplay_config.get('auto_spin', False)
+        self.mouse_control_angle = gameplay_config.get('mouse_control_angle', True)
         self.manual_angle = 0
         self.last_send_time = 0
-        self.send_rate = CLIENT_CONFIG['network']['send_rate_ms'] / 1000
+        self.send_rate = CLIENT_CONFIG.get('network', {}).get('send_rate_ms', 50) / 1000
         self.chat_input = ""
         self.chat_mode = False
         self.start_team = start_team
+        
+        # Initialize menu AFTER setting game attributes
+        self.menu = Menu(self)
         
         # Event loop
         self.loop = asyncio.new_event_loop()
@@ -1222,7 +1606,7 @@ class Game:
                     else:
                         self.auth_screen.handle_input(event)
                 
-                elif event.key == pygame.K_r:
+                elif event.key == pygame.K_r and self.game_state == GameState.CONNECTING_TO_GAME or self.game_state == GameState.ERROR:
                     if self.game_state == GameState.CONNECTING_TO_GAME and self.game_client.connection_error:
                         # Retry connection
                         self.attempt_game_connection(self.auth_screen.username_input)
@@ -1256,20 +1640,46 @@ class Game:
                             self.auto_spin = not self.auto_spin
                         elif event.key == pygame.K_g:
                             self.mouse_control_angle = not self.mouse_control_angle
+                        elif event.key == pygame.K_q:
+                            if self.menu.active:
+                                self.menu.show_tank_upgrades()
+                            else:
+                                self.menu.active = True
+                                self.menu.show_tank_upgrades()
+                        elif event.key == pygame.K_e:
+                            if self.menu.active:
+                                self.menu.show_skill_upgrades()
+                            else:
+                                self.menu.active = True
+                                self.menu.show_skill_upgrades()
                         elif event.key == pygame.K_LEFT:
                             pass  # Continuous in update
                         elif event.key == pygame.K_RIGHT:
                             pass  # Continuous in update
                         elif event.key == pygame.K_t:
                             self.chat_mode = True
+                        elif event.key == pygame.K_b and self.menu.active and self.menu.current_menu in ('tank_menu', 'skill_menu'):
+                            self.menu.buy_current_selection()
                         elif event.key == pygame.K_ESCAPE:
                             if self.menu.active:
-                                self.menu.active = False
+                                if self.menu.current_menu != 'main':
+                                    self.menu.back_to_main()
+                                else:
+                                    self.menu.active = False
     
     def update(self):
         """Update game logic"""
         self.input_manager.update()
-        
+        if self.menu.active:
+            self.menu.handle_input(self.input_manager)
+
+        if self.menu.active or self.chat_mode:
+            pygame.mouse.set_visible(True)
+            pygame.event.set_grab(False)
+        else:
+            pygame.mouse.set_visible(False)
+            pygame.event.set_grab(True)
+
         if self.game_state in (GameState.LOGIN, GameState.REGISTER) and self.auth_screen.auth_successful:
             self.auth_screen.auth_successful = False
             self.attempt_game_connection(self.auth_screen.username_input)
@@ -1286,16 +1696,16 @@ class Game:
         self.game_client.process_messages()
         
         # Update camera
-        self.camera_pos.x = self.player_local['x']
-        self.camera_pos.y = self.player_local['y']
+        self.camera_pos.x = get_player_attr(self.player_local, 'x', 0)
+        self.camera_pos.y = get_player_attr(self.player_local, 'y', 0)
         
         # Get input
         direction = self.input_manager.get_direction()
-        if self.mouse_control_angle:
+        if self.auto_spin:
+            angle = math.sin(time.time() * 2) * math.pi
+        elif self.mouse_control_angle:
             angle = self.input_manager.get_mouse_angle()
         else:
-            if self.auto_spin:
-                self.manual_angle += 0.1
             if self.input_manager.is_pressed('left'):
                 self.manual_angle -= 0.05
             if self.input_manager.is_pressed('right'):
@@ -1325,7 +1735,7 @@ class Game:
             target_x = self.player_local.x
             target_y = self.player_local.y
             
-            smoothing = CLIENT_CONFIG['gameplay']['camera_smoothing']
+            smoothing = CLIENT_CONFIG.get('gameplay', {}).get('camera_smoothing', 0.1)
             self.camera_pos.x += (target_x - self.camera_pos.x) * smoothing
             self.camera_pos.y += (target_y - self.camera_pos.y) * smoothing
     
@@ -1389,7 +1799,8 @@ class Game:
                     'id': self.player_local.id,
                     'health': self.player_local.health,
                     'max_health': self.player_local.max_health,
-                    'score': self.player_local.score,
+                    'resources': self.player_local.resources,
+                    'money': self.player_local.money,
                     'rank': self.player_local.rank,
                     'tank': self.player_local.tank_name,
                     'team': self.player_local.team
