@@ -109,7 +109,7 @@ DAILY_REWARDS_ENABLED = CONFIG['daily_rewards']['enabled']
 DAILY_REWARD_BASE = CONFIG['daily_rewards']['base_reward']
 
 # Anti-Cheat
-ANTI_CHEAT_ENABLED = CONFIG['anti_cheat']['enabled']
+ANTI_CHEAT_ENABLED = CONFIG['anti_cheat']['enabled', False]
 
 # Admin
 ADMIN_CREDENTIALS = CONFIG['admin']['credentials']
@@ -329,15 +329,15 @@ class Player:
         self.user_id = user_id
         self.team = team_id
         
-        spawn_x, spawn_y = self._get_spawn_location(team_id)
+        spawn_x, spawn_y = self._get_spawn_location(team_id) # turn into spawn area based on team and become random in that space, not spawn location...
         self.x = spawn_x
         self.y = spawn_y
         self.vx = 0
         self.vy = 0
         self.angle = 0
         
-        self.health = PLAYER_MAX_HEALTH
-        self.max_health = PLAYER_MAX_HEALTH
+        self.health = PLAYER_MAX_HEALTH # needs to be based on tank stats and upgrades
+        self.max_health = PLAYER_MAX_HEALTH # needs to be based on tank stats and upgrades
         self.score = 0
         self.money = 0
         self.kills = 0
@@ -412,15 +412,15 @@ class Player:
                 
                 # Kill/Death penalty: transfer 1/4 of resources
                 rank_transfer = max(1, self.rank // 4)
-                score_transfer = max(1, self.score // 4)
+                resource_transfer = max(1, self.score // 4)
                 money_transfer = max(1, self.money // 4)
                 
                 attacker.rank += rank_transfer
-                attacker.score += score_transfer
+                attacker.score += resource_transfer
                 attacker.money += money_transfer
                 
                 self.rank = max(1, self.rank - rank_transfer)
-                self.score = max(0, self.score - score_transfer)
+                self.score = max(0, self.score - resource_transfer)
                 self.money = max(0, self.money - money_transfer)
             
             return True
@@ -671,7 +671,7 @@ async def handle_shoot(player_id, data):
     current_time = time.time()
     fire_rate = player.tank['stats'].get('fire_rate', 0.1)
     
-    if current_time - player.last_shot_time < fire_rate:
+    if current_time - player.last_shot_time < fire_rate:  # needs to be based on tank stats and upgrades
         return
     
     if ANTI_CHEAT and not ANTI_CHEAT.check_rate_limit(player_id, 'shoot'):
@@ -685,7 +685,7 @@ async def handle_shoot(player_id, data):
     
     bullet = Bullet(next_bullet_id, player.x, player.y,
                    vx * BULLET_SPEED, vy * BULLET_SPEED,
-                   player_id, player.team)
+                   player_id, player.team) # needs to be based on tank stats and upgrades
     
     bullets.append(bullet)
     next_bullet_id += 1
@@ -773,7 +773,7 @@ async def handle_buy_upgrade(player_id, data):
         "level": player.upgrades[upgrade_name]
     })
 
-async def handle_message(player_id, raw_message):
+async def handle_message(player_id, raw_message):  # need to add commands and debug/admin tools/msg types
     try:
         data = json.loads(raw_message)
         msg_type = data.get('type')
@@ -1092,8 +1092,8 @@ async def handle_game_client(websocket, path):
                 "world_height": WORLD_H,
                 "player_radius": PLAYER_RADIUS,
                 "bullet_radius": BULLET_RADIUS,
-                "bullet_speed": BULLET_SPEED,
-                "player_speed": PLAYER_SPEED,
+                "bullet_speed": BULLET_SPEED,  # needs to be based on tank stats and upgrades
+                "player_speed": PLAYER_SPEED,  # needs to be based on tank stats and upgrades
                 "teams": NUM_TEAMS,
                 "game_modes": [m['name'] for m in GAME_MODES]
             }
@@ -1174,7 +1174,7 @@ async def update_loop():
                 if bullet in bullets:
                     bullets.remove(bullet)
             
-            # Blob-bullet collisions, add player to blob collisions
+            # Blob-bullet collisions, add player to blob collisions...
             blobs_to_remove = []
             for blob in list(blobs):
                 for bullet in list(bullets):
@@ -1195,7 +1195,7 @@ async def update_loop():
                 if blob in blobs:
                     blobs.remove(blob)
             
-            # Player-player collisions
+            # Player-player collisions, add player to blob collisions... are we missing player-bullet/bullet-player collisions?
             player_list = list(players.values())
             for i, p1 in enumerate(player_list):
                 if not p1.alive:
