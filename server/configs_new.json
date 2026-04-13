@@ -207,24 +207,25 @@
       "Basic": [
         "Freeze": [
             "Flame": [
-                "Multi Flame"]
+                "Multi Flame"],
             "Rail": [
-                "Multi Rail"]
-            "Multi Freeze": [
-                "OP Freeze"]
-        ]
+                "Multi Rail"],
+            "OP Freeze": [
+                "Multi-OP Freeze"]
+        ],
         "Sniper": [
             "Scout": [
-                "Assassin"]
+                "Assassin"],
             "OP Sniper": [
-                "Rifle Sniper"]
+                "Multi-OP Sniper"]
             ]
-        ]
+        ],
         "Grinder": [
-            "Block"
+            "Block",
             "Multi Block"
+        ],
         "Spammer": [
-            "Multi"
+            "Multi",
             "OP Spammer"
         ]
       ]
