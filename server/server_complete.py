@@ -296,26 +296,27 @@ class Player:
         self.user_id = user_id
         self.team = team_id
         
-        spawn_x, spawn_y = self._get_spawn_location(team_id) # turn into spawn area based on team and become random in that space, not spawn location...
+        spawn_x, spawn_y = self._get_spawn_location(team_id)
         self.x = spawn_x
         self.y = spawn_y
         self.vx = 0
         self.vy = 0
         self.angle = 0
         
-        self.health = PLAYER_MAX_HEALTH # needs to be based on tank stats and upgrades
-        self.max_health = PLAYER_MAX_HEALTH # needs to be based on tank stats and upgrades
+        self.tank = self._get_tank_by_name(DEFAULT_TANK)
+        self.upgrades = {}
+        self.last_shot_time = 0
+        self.stats = self._calculate_stats()
+        self.health = self.stats.get('health', PLAYER_MAX_HEALTH)
+        self.max_health = self.stats.get('health', PLAYER_MAX_HEALTH)
+        self.radius = self.stats.get('size', PLAYER_RADIUS)
+        self.is_admin = False
         self.score = 0
         self.money = 0
         self.kills = 0
         self.assists = 0
         self.deaths = 0
         self.rank = 1
-        
-        self.tank = self._get_tank_by_name(DEFAULT_TANK)
-        self.upgrades = {}
-        self.last_shot_time = 0
-        self.stats = self._calculate_stats()
         self.resources = 0
         
         self.alive = True
@@ -330,7 +331,15 @@ class Player:
     def _get_spawn_location(self, team_id):
         for team in TEAMS_CONFIG:
             if team['id'] == team_id:
-                return (team['spawn_x'], team['spawn_y'])
+                spawn_x = team.get('spawn_x', WORLD_W // 2)
+                spawn_y = team.get('spawn_y', WORLD_H // 2)
+                margin_x = team.get('spawn_margin_x', 120)
+                margin_y = team.get('spawn_margin_y', 120)
+                x_min = max(PLAYER_RADIUS, spawn_x - margin_x)
+                x_max = min(WORLD_W - PLAYER_RADIUS, spawn_x + margin_x)
+                y_min = max(PLAYER_RADIUS, spawn_y - margin_y)
+                y_max = min(WORLD_H - PLAYER_RADIUS, spawn_y + margin_y)
+                return (random.randint(x_min, x_max), random.randint(y_min, y_max))
         return (
             random.randint(PLAYER_RADIUS, WORLD_W - PLAYER_RADIUS),
             random.randint(PLAYER_RADIUS, WORLD_H - PLAYER_RADIUS)
@@ -346,12 +355,14 @@ class Player:
         stats = self.tank.get('stats', {}).copy()
         stats.setdefault('health_regen', HEALTH_REGEN)
         stats.setdefault('bullet_speed', BULLET_SPEED)
+        stats.setdefault('bullet_radius', BULLET_RADIUS)
+        stats.setdefault('bullet_health', 1)
+        stats.setdefault('bullet_range', 200)
         stats.setdefault('fire_rate', stats.get('fire_rate', 0.1))
         stats.setdefault('damage', stats.get('damage', 1))
         stats.setdefault('speed', stats.get('speed', PLAYER_SPEED))
         stats.setdefault('body_damage', stats.get('body_damage', 10))
-        stats.setdefault('bullet_health', 1)
-        stats.setdefault('bullet_range', 200)
+        stats.setdefault('size', PLAYER_RADIUS)
 
         for upgrade_name, level in self.upgrades.items():
             upgrade = next((u for u in UPGRADES_CONFIG if u['name'] == upgrade_name), None)
@@ -383,6 +394,7 @@ class Player:
     def recalculate_stats(self):
         self.stats = self._calculate_stats()
         self.max_health = self.stats.get('health', PLAYER_MAX_HEALTH)
+        self.radius = max(5, self.stats.get('size', PLAYER_RADIUS))
         if self.health > self.max_health:
             self.health = self.max_health
 
@@ -418,7 +430,9 @@ class Player:
             "rank": self.rank,
             "alive": self.alive,
             "state": self.state.value,
-            "lobby_id": self.lobby_id
+            "lobby_id": self.lobby_id,
+            "radius": self.radius,
+            "is_admin": self.is_admin
         }
     
     def take_damage(self, damage, attacker_id=None):
@@ -493,7 +507,7 @@ class Blob:
 
 # ==================== BULLET CLASS ====================
 class Bullet:
-    def __init__(self, bullet_id, x, y, vx, vy, owner_id, owner_team):
+    def __init__(self, bullet_id, x, y, vx, vy, owner_id, owner_team, health=1, radius=BULLET_RADIUS, max_range=200):
         self.id = bullet_id
         self.x = x
         self.y = y
@@ -501,15 +515,21 @@ class Bullet:
         self.vy = vy
         self.owner_id = owner_id
         self.owner_team = owner_team
-        self.radius = BULLET_RADIUS
+        self.health = int(max(1, health))
+        self.radius = max(2, int(radius))
+        self.max_range = max(50, int(max_range))
         self.created_at = time.time()
+        self.distance_traveled = 0.0
     
     def update(self):
         self.x += self.vx
         self.y += self.vy
+        self.distance_traveled += math.sqrt(self.vx**2 + self.vy**2)
         return (self.x < 0 or self.x > WORLD_W or 
                 self.y < 0 or self.y > WORLD_H or
-                time.time() - self.created_at > BULLET_MAX_LIFETIME)
+                self.distance_traveled > self.max_range or
+                time.time() - self.created_at > BULLET_MAX_LIFETIME or
+                self.health <= 0)
     
     def to_dict(self):
         return {
@@ -518,7 +538,9 @@ class Bullet:
             "y": self.y,
             "owner_id": self.owner_id,
             "owner_team": self.owner_team,
-            "radius": self.radius
+            "radius": self.radius,
+            "health": self.health,
+            "max_range": self.max_range
         }
 
 # ==================== LOBBY CLASS ====================
@@ -726,9 +748,9 @@ async def handle_move(player_id, data):
     new_x = player.x + vx
     new_y = player.y + vy
     
-    if PLAYER_RADIUS <= new_x <= WORLD_W - PLAYER_RADIUS:
+    if player.radius <= new_x <= WORLD_W - player.radius:
         player.x = new_x
-    if PLAYER_RADIUS <= new_y <= WORLD_H - PLAYER_RADIUS:
+    if player.radius <= new_y <= WORLD_H - player.radius:
         player.y = new_y
 
 async def handle_shoot(player_id, data):
@@ -752,10 +774,22 @@ async def handle_shoot(player_id, data):
     angle = data.get('angle', 0)
     vx, vy = calculate_direction_vector(angle)
     bullet_speed = player.stats.get('bullet_speed', BULLET_SPEED)
+    bullet_radius = player.stats.get('bullet_radius', BULLET_RADIUS)
+    bullet_health = player.stats.get('bullet_health', 1)
+    bullet_range = player.stats.get('bullet_range', 200)
     
-    bullet = Bullet(next_bullet_id, player.x, player.y,
-                   vx * bullet_speed, vy * bullet_speed,
-                   player_id, player.team)
+    bullet = Bullet(
+        next_bullet_id,
+        player.x,
+        player.y,
+        vx * bullet_speed,
+        vy * bullet_speed,
+        player_id,
+        player.team,
+        health=bullet_health,
+        radius=bullet_radius,
+        max_range=bullet_range
+    )
     
     bullets.append(bullet)
     next_bullet_id += 1
@@ -870,6 +904,198 @@ async def handle_buy_upgrade(player_id, data):
         "level": player.upgrades[upgrade_name]
     })
 
+async def handle_admin_login(player_id, data):
+    player = players.get(player_id)
+    if not player:
+        return
+
+    username = data.get('username', '')
+    password = data.get('password', '')
+    expected = ADMIN_CREDENTIALS.get(username)
+
+    success = expected is not None and expected == password
+    player.is_admin = success
+
+    await clients[player_id].send(json.dumps({
+        "type": "admin_login_response",
+        "success": success,
+        "message": "Admin login successful" if success else "Invalid admin credentials",
+        "is_admin": success
+    }))
+
+async def handle_admin_command(player_id, data):
+    player = players.get(player_id)
+    if not player or not player.is_admin:
+        if player_id in clients:
+            await clients[player_id].send(json.dumps({
+                "type": "admin_command_response",
+                "success": False,
+                "message": "Admin privileges required"
+            }))
+        return
+
+    command = data.get('command', '')
+    payload = data.get('payload', {})
+    response = {"type": "admin_command_response", "command": command, "success": False}
+
+    if command == 'kick_player':
+        target_id = payload.get('player_id')
+        if target_id in players:
+            await disconnect_player(target_id)
+            response.update({"success": True, "message": f"Kicked player {target_id}"})
+        else:
+            response.update({"message": "Player not found"})
+
+    elif command == 'broadcast':
+        message = payload.get('message', 'Server message')
+        await broadcast({"type": "chat", "username": "SERVER", "message": message, "team": 0, "timestamp": time.time()})
+        response.update({"success": True, "message": "Broadcast sent"})
+
+    elif command == 'spawn_blob':
+        blob_type = payload.get('type', None)
+        if blob_type not in BLOB_TYPES:
+            response.update({"message": "Invalid blob type"})
+        else:
+            global next_blob_id
+            x = random.randint(BULLET_RADIUS * 2, WORLD_W - BULLET_RADIUS * 2)
+            y = random.randint(BULLET_RADIUS * 2, WORLD_H - BULLET_RADIUS * 2)
+            blobs.append(Blob(next_blob_id, x, y, blob_type))
+            next_blob_id += 1
+            response.update({"success": True, "message": f"Spawned blob {blob_type}"})
+
+    elif command == 'give_money':
+        target_id = payload.get('player_id')
+        amount = int(payload.get('amount', 0))
+        if target_id in players:
+            players[target_id].money += amount
+            response.update({"success": True, "message": f"Added {amount} money"})
+        else:
+            response.update({"message": "Player not found"})
+
+    elif command == 'give_resources':
+        target_id = payload.get('player_id')
+        amount = int(payload.get('amount', 0))
+        if target_id in players:
+            players[target_id].resources += amount
+            players[target_id].sync_resources()
+            players[target_id].update_rank()
+            response.update({"success": True, "message": f"Added {amount} resources"})
+        else:
+            response.update({"message": "Player not found"})
+
+    elif command == 'set_game_mode':
+        new_mode = payload.get('mode')
+        if new_mode and any(m['name'] == new_mode for m in GAME_MODES):
+            lobby = lobbies.get(players[player_id].lobby_id)
+            if lobby:
+                lobby.game_mode = new_mode
+                await broadcast_lobby_update(lobby)
+                response.update({"success": True, "message": f"Lobby mode set to {new_mode}"})
+            else:
+                response.update({"message": "No lobby found"})
+        else:
+            response.update({"message": "Invalid game mode"})
+
+    elif command == 'toggle_debug':
+        DEBUG_CONFIG['enabled'] = not DEBUG_CONFIG.get('enabled', False)
+        response.update({"success": True, "message": f"Debug enabled = {DEBUG_CONFIG['enabled']}"})
+
+    elif command == 'set_player_health':
+        target_id = payload.get('player_id')
+        health = int(payload.get('health', 100))
+        if target_id in players:
+            players[target_id].health = min(health, players[target_id].max_health)
+            response.update({"success": True, "message": f"Set player {target_id} health to {health}"})
+        else:
+            response.update({"message": "Player not found"})
+
+    elif command == 'teleport_player':
+        target_id = payload.get('player_id')
+        x = int(payload.get('x', 0))
+        y = int(payload.get('y', 0))
+        if target_id in players:
+            players[target_id].x = x
+            players[target_id].y = y
+            response.update({"success": True, "message": f"Teleported player {target_id} to ({x}, {y})"})
+        else:
+            response.update({"message": "Player not found"})
+
+    elif command == 'spawn_blob_at':
+        blob_type = payload.get('type')
+        x = int(payload.get('x', WORLD_W // 2))
+        y = int(payload.get('y', WORLD_H // 2))
+        if blob_type not in BLOB_TYPES:
+            response.update({"message": "Invalid blob type"})
+        else:
+            global next_blob_id
+            blobs.append(Blob(next_blob_id, x, y, blob_type))
+            next_blob_id += 1
+            response.update({"success": True, "message": f"Spawned {blob_type} at ({x}, {y})"})
+
+    elif command == 'clear_blobs':
+        blobs.clear()
+        response.update({"success": True, "message": "Cleared all blobs"})
+
+    elif command == 'set_day_night':
+        is_day = payload.get('is_day', True)
+        global day_night_cycle_start
+        day_night_cycle_start = time.time() - (DAY_DURATION if is_day else DAY_DURATION + NIGHT_DURATION)
+        response.update({"success": True, "message": f"Set time to {'day' if is_day else 'night'}"})
+
+    elif command == 'kill_player':
+        target_id = payload.get('player_id')
+        if target_id in players:
+            players[target_id].health = 0
+            players[target_id].alive = False
+            players[target_id].state = PlayerState.DEAD
+            response.update({"success": True, "message": f"Killed player {target_id}"})
+        else:
+            response.update({"message": "Player not found"})
+
+    elif command == 'give_upgrade':
+        target_id = payload.get('player_id')
+        upgrade_name = payload.get('upgrade')
+        level = int(payload.get('level', 1))
+        if target_id in players and upgrade_name in [u['Name'] for u in UPGRADES_CONFIG]:
+            players[target_id].upgrades[upgrade_name] = level
+            players[target_id].recalculate_stats()
+            response.update({"success": True, "message": f"Gave {upgrade_name} level {level} to player {target_id}"})
+        else:
+            response.update({"message": "Player or upgrade not found"})
+
+    elif command == 'reset_player':
+        target_id = payload.get('player_id')
+        if target_id in players:
+            player = players[target_id]
+            player.health = player.max_health
+            player.money = 0
+            player.resources = 0
+            player.kills = 0
+            player.deaths = 0
+            player.assists = 0
+            player.rank = 1
+            player.upgrades = {}
+            player.recalculate_stats()
+            response.update({"success": True, "message": f"Reset player {target_id}"})
+        else:
+            response.update({"message": "Player not found"})
+
+    elif command == 'server_stats':
+        stats = {
+            "players": len(players),
+            "blobs": len(blobs),
+            "bullets": len(bullets),
+            "lobbies": len(lobbies),
+            "uptime": time.time() - day_night_cycle_start
+        }
+        response.update({"success": True, "message": "Server stats", "stats": stats})
+
+    else:
+        response.update({"message": "Unknown admin command"})
+
+    if player_id in clients:
+        await clients[player_id].send(json.dumps(response))
+
 async def handle_message(player_id, raw_message):  # need to add commands and debug/admin tools/msg types
     try:
         data = json.loads(raw_message)
@@ -885,6 +1111,10 @@ async def handle_message(player_id, raw_message):  # need to add commands and de
             await handle_buy_tank(player_id, data)
         elif msg_type == 'buy_upgrade':
             await handle_buy_upgrade(player_id, data)
+        elif msg_type == 'admin_login':
+            await handle_admin_login(player_id, data)
+        elif msg_type == 'admin_command':
+            await handle_admin_command(player_id, data)
         elif msg_type == 'ping':
             if player_id in clients:
                 await clients[player_id].send(json.dumps({"type": "pong"}))
@@ -1274,35 +1504,39 @@ async def spawn_blobs_loop():
 async def update_loop():
     last_state_update = 0
     last_info_print = 0
-    
+    last_time = time.time()
+
     while True:
         try:
             await asyncio.sleep(1 / 60)
             current_time = time.time()
-            
+            delta = current_time - last_time
+            last_time = current_time
+
             if current_time - last_info_print > 10:
                 print(f"[INFO] Players online: {len(players)}, Blobs: {len(blobs)}, Bullets: {len(bullets)}")
                 last_info_print = current_time
-            
+
             # Update bullets
             bullets_to_remove = []
             for bullet in list(bullets):
                 if bullet.update():
                     bullets_to_remove.append(bullet)
-            
+
             for bullet in bullets_to_remove:
                 if bullet in bullets:
                     bullets.remove(bullet)
-            
+
             # Blob-bullet collisions
             blobs_to_remove = []
             for blob in list(blobs):
                 for bullet in list(bullets):
                     if distance(blob.x, blob.y, bullet.x, bullet.y) < blob.radius + bullet.radius:
                         blob.hp -= 1
-                        if bullet in bullets:
+                        bullet.health -= 1
+                        if bullet.health <= 0 and bullet in bullets:
                             bullets.remove(bullet)
-                        
+
                         if blob.hp <= 0:
                             blobs_to_remove.append(blob)
                             if bullet.owner_id in players:
@@ -1311,7 +1545,7 @@ async def update_loop():
                                 owner.resources += blob.reward
                                 owner.sync_resources()
                                 owner.update_rank()
-            
+
             for blob in blobs_to_remove:
                 if blob in blobs:
                     blobs.remove(blob)
@@ -1321,7 +1555,7 @@ async def update_loop():
                 for player in list(players.values()):
                     if not player.alive:
                         continue
-                    if distance(blob.x, blob.y, player.x, player.y) < blob.radius + PLAYER_RADIUS:
+                    if distance(blob.x, blob.y, player.x, player.y) < blob.radius + player.radius:
                         player.take_damage(1)  # Should damage be adjusted based on blob type?
                         blob.hp -= 1
                         if blob.hp <= 0:
@@ -1347,16 +1581,17 @@ async def update_loop():
                 for player in list(players.values()):
                     if not player.alive or player.id == bullet.owner_id:
                         continue
-                    if distance(player.x, player.y, bullet.x, bullet.y) < PLAYER_RADIUS + bullet.radius:
+                    if distance(player.x, player.y, bullet.x, bullet.y) < player.radius + bullet.radius:
                         if team_match and player.team == bullet.owner_team:
                             continue
                         damage = owner.stats.get('damage', 1)
-                        if player.take_damage(damage, bullet.owner_id):
-                            if lobby and lobby.game_mode != 'Free For All':
-                                lobby.team_scores.setdefault(owner.team, 0)
-                                lobby.team_scores[owner.team] += 1
-                                await broadcast_lobby_update(lobby)
-                        if bullet in bullets:
+                        killed = player.take_damage(damage, bullet.owner_id)
+                        bullet.health -= 1
+                        if killed and lobby and lobby.game_mode != 'Free For All':
+                            lobby.team_scores.setdefault(owner.team, 0)
+                            lobby.team_scores[owner.team] += 1
+                            await broadcast_lobby_update(lobby)
+                        if bullet.health <= 0 and bullet in bullets:
                             bullets_to_remove.append(bullet)
                         break
 
@@ -1372,16 +1607,19 @@ async def update_loop():
                 for p2 in player_list[i+1:]:
                     if not p2.alive:
                         continue
-                    if distance(p1.x, p1.y, p2.x, p2.y) < PLAYER_RADIUS * 2:
+                    if distance(p1.x, p1.y, p2.x, p2.y) < p1.radius + p2.radius:
                         damage = max(1, int((p1.stats.get('body_damage', 10) + p2.stats.get('body_damage', 10)) / 2))
                         p1.take_damage(damage, p2.id)
                         p2.take_damage(damage, p1.id)
-            
+
             # Health regen
             for player in players.values():
                 if player.alive and player.health < player.max_health:
-                    player.health = min(player.max_health, player.health + HEALTH_REGEN)
-            
+                    player.regen_timer += delta
+                    if player.regen_timer >= player.regen_cooldown:
+                        player.regen_timer = 0.0
+                        player.health = min(player.max_health, player.health + player.regen)
+
             # Respawn
             for player in players.values():
                 if not player.alive and current_time - player.last_damage_time > RESPAWN_TIME:
@@ -1392,12 +1630,12 @@ async def update_loop():
                     player.alive = True
                     player.state = PlayerState.ALIVE
                     player.invincible_until = current_time + RESPAWN_INVINCIBILITY
-            
+
             # Broadcast state
             if current_time - last_state_update > 0.1:
                 await broadcast_state()
                 last_state_update = current_time
-        
+
         except Exception as e:
             print(f"Update error: {e}")
 

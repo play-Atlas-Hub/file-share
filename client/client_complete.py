@@ -60,9 +60,11 @@ text_cache = TextCache()
 
 # ==================== ENUMS ====================
 class GameState(Enum):
+    SERVER_SELECTION = "server_selection"
     CONNECTING = "connecting"
     LOGIN = "login"
     REGISTER = "register"
+    TEAM_SELECTION = "team_selection"
     LOBBY = "lobby"
     PLAYING = "playing"
     DEAD = "dead"
@@ -544,6 +546,10 @@ class GameClient:
         self.connected = False
         self.server_config = {}
         
+        # Configurable server URLs
+        self.game_server_url = CLIENT_CONFIG['network']['game_server']
+        self.login_server_url = CLIENT_CONFIG['network']['login_server']
+        
         # Game data
         self.players = {}
         self.blobs = {}
@@ -556,10 +562,26 @@ class GameClient:
         self.message_lock = asyncio.Lock()
     
     async def login(self, username: str, password: str) -> bool:
-        login_url = CLIENT_CONFIG['network']['login_server']
-        
         try:
-            async with websockets.connect(login_url, ping_interval=20) as ws:
+            async with websockets.connect(self.login_server_url, ping_interval=20) as ws:
+                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                
+                await ws.send(json.dumps({
+                    'action': 'login',
+                    'username': username,
+                    'password': password_hash
+                }))
+                
+                response = json.loads(await ws.recv())
+                
+                if response.get('success'):
+                    self.token = response['token']
+                    self.player_data = {
+                        'user_id': response['user_id'],
+                        'username': response['username'],
+                        'stats': response.get('stats', {})
+                    }
+                    return True
                 password_hash = hashlib.sha256(password.encode()).hexdigest()
                 
                 await ws.send(json.dumps({
@@ -604,10 +626,8 @@ class GameClient:
             return False
     
     async def connect_to_game(self, username: str, team: int = 1) -> bool:
-        game_url = CLIENT_CONFIG['network']['game_server']
-        
         try:
-            self.game_ws = await websockets.connect(game_url, ping_interval=20)
+            self.game_ws = await websockets.connect(self.game_server_url, ping_interval=20)
             self.connected = True
             
             await self.game_ws.send(json.dumps({
@@ -772,10 +792,108 @@ class GameClient:
         if self.game_ws:
             asyncio.create_task(self.game_ws.close())
 
+# ==================== SERVER SELECTION SCREEN ====================
+class ServerSelectionScreen:
+    def __init__(self, game_client):
+        self.game_client = game_client
+        self.servers = [
+            {"name": "Local Server", "game_url": "ws://localhost:8765", "login_url": "ws://localhost:8766"},
+            {"name": "Remote Server", "game_url": "ws://0.0.0.0:8765", "login_url": "ws://0.0.0.0:8766"},
+            # Add more servers as needed
+        ]
+        self.selected_server = 0
+        self.connecting = False
+        self.error_message = ""
+    
+    def handle_input(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP:
+                self.selected_server = (self.selected_server - 1) % len(self.servers)
+            elif event.key == pygame.K_DOWN:
+                self.selected_server = (self.selected_server + 1) % len(self.servers)
+            elif event.key == pygame.K_RETURN:
+                self.connecting = True
+                server = self.servers[self.selected_server]
+                self.game_client.game_server_url = server["game_url"]
+                self.game_client.login_server_url = server["login_url"]
+                # Return to main game to proceed to auth
+                return "auth"
+        return None
+    
+    def draw(self, surface):
+        surface.fill((20, 20, 20))
+        
+        title = text_cache.get("Select Server", font_large, (100, 255, 100))
+        surface.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 100))
+        
+        y_offset = 200
+        for i, server in enumerate(self.servers):
+            color = (255, 255, 100) if i == self.selected_server else (200, 200, 200)
+            server_text = text_cache.get(server["name"], font_medium, color)
+            surface.blit(server_text, (SCREEN_WIDTH//2 - server_text.get_width()//2, y_offset))
+            y_offset += 50
+        
+        if self.connecting:
+            connecting_text = text_cache.get("Connecting...", font_medium, (255, 255, 255))
+            surface.blit(connecting_text, (SCREEN_WIDTH//2 - connecting_text.get_width()//2, y_offset + 50))
+        
+        if self.error_message:
+            error_text = text_cache.get(self.error_message, font_small, (255, 100, 100))
+            surface.blit(error_text, (SCREEN_WIDTH//2 - error_text.get_width()//2, y_offset + 100))
+
+# ==================== TEAM SELECTION SCREEN ====================
+class TeamSelectionScreen:
+    def __init__(self, game_client):
+        self.game_client = game_client
+        self.teams = [
+            {"id": 1, "name": "Team 1", "color": (255, 0, 0)},
+            {"id": 2, "name": "Team 2", "color": (0, 0, 255)},
+            {"id": 3, "name": "Team 3", "color": (0, 255, 0)},
+            {"id": 4, "name": "Team 4", "color": (128, 0, 128)}
+        ]
+        self.selected_team = 0
+        self.connecting = False
+        self.error_message = ""
+    
+    def handle_input(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_LEFT:
+                self.selected_team = (self.selected_team - 1) % len(self.teams)
+            elif event.key == pygame.K_RIGHT:
+                self.selected_team = (self.selected_team + 1) % len(self.teams)
+            elif event.key == pygame.K_RETURN:
+                self.connecting = True
+                team = self.teams[self.selected_team]
+                # Proceed to connect with selected team
+                return team["id"]
+        return None
+    
+    def draw(self, surface):
+        surface.fill((20, 20, 20))
+        
+        title = text_cache.get("Select Team", font_large, (100, 255, 100))
+        surface.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 100))
+        
+        x_offset = 200
+        for i, team in enumerate(self.teams):
+            color = team["color"] if i == self.selected_team else (100, 100, 100)
+            team_text = text_cache.get(team["name"], font_medium, color)
+            surface.blit(team_text, (x_offset, 300))
+            x_offset += 250
+        
+        if self.connecting:
+            connecting_text = text_cache.get("Connecting...", font_medium, (255, 255, 255))
+            surface.blit(connecting_text, (SCREEN_WIDTH//2 - connecting_text.get_width()//2, 500))
+        
+        if self.error_message:
+            error_text = text_cache.get(self.error_message, font_small, (255, 100, 100))
+            surface.blit(error_text, (SCREEN_WIDTH//2 - error_text.get_width()//2, 550))
+
 # ==================== LOGIN/REGISTER SCREENS ====================
 class AuthScreen:
-    def __init__(self, game_client, is_register=False):
+    def __init__(self, game_client, game, is_register=False):
         self.game_client = game_client
+        self.game = game
         self.is_register = is_register
         self.username_input = ""
         self.password_input = ""
@@ -832,10 +950,9 @@ class AuthScreen:
                 )
             
             if success:
-                if await self.game_client.connect_to_game(self.username_input):
-                    return True
-                else:
-                    self.error_message = "Failed to connect to game server"
+                # Go to team selection
+                self.game.game_state = GameState.TEAM_SELECTION
+                return True
             else:
                 self.error_message = "Authentication failed"
         except Exception as e:
@@ -915,18 +1032,28 @@ class Game:
         self.input_manager = InputManager(CLIENT_CONFIG)
         self.renderer = Renderer(SCREEN_WIDTH, SCREEN_HEIGHT)
         self.menu = Menu(self)
-        self.auth_screen = AuthScreen(self.game_client, is_register=False)
-        self.game_state = GameState.LOGIN
+        self.server_selection_screen = ServerSelectionScreen(self.game_client)
+        self.auth_screen = AuthScreen(self.game_client, self, is_register=False)
+        self.team_selection_screen = TeamSelectionScreen(self.game_client)
+        self.game_state = GameState.SERVER_SELECTION
         self.camera_pos = Vector2(0, 0)
         self.player_local = None
         self.player_local_id = None
         self.running = True
-        self.auto_shoot = CLIENT_CONFIG['gameplay']['auto_shoot_enabled']
-        self.auto_spin = CLIENT_CONFIG['gameplay']['auto_spin_enabled']
+        self.auto_shoot = CLIENT_CONFIG['gameplay']['auto_shoot']
+        self.auto_spin = CLIENT_CONFIG['gameplay']['auto_spin']
         self.last_send_time = 0
         self.send_rate = CLIENT_CONFIG['network']['send_rate_ms'] / 1000
         self.chat_input = ""
         self.chat_mode = False
+    
+    async def _connect_with_team(self, team_id):
+        username = self.auth_screen.username_input
+        if await self.game_client.connect_to_game(username, team_id):
+            self.game_state = GameState.CONNECTING
+        else:
+            self.team_selection_screen.error_message = "Failed to connect to game server"
+            self.team_selection_screen.connecting = False
     
     def handle_events(self):
         for event in pygame.event.get():
@@ -937,12 +1064,12 @@ class Game:
                 # Toggle register/login
                 if event.key == pygame.K_r and pygame.key.get_mods() & pygame.KMOD_ALT:
                     if self.game_state == GameState.LOGIN:
-                        self.auth_screen = AuthScreen(self.game_client, is_register=True)
+                        self.auth_screen = AuthScreen(self.game_client, self, is_register=True)
                         self.game_state = GameState.REGISTER
                 
                 elif event.key == pygame.K_l and pygame.key.get_mods() & pygame.KMOD_ALT:
                     if self.game_state == GameState.REGISTER:
-                        self.auth_screen = AuthScreen(self.game_client, is_register=False)
+                        self.auth_screen = AuthScreen(self.game_client, self, is_register=False)
                         self.game_state = GameState.LOGIN
                 
                 # Chat input
@@ -983,6 +1110,19 @@ class Game:
                 # Auth screen input
                 elif self.game_state in [GameState.LOGIN, GameState.REGISTER]:
                     self.auth_screen.handle_input(event)
+                
+                # Server selection input
+                elif self.game_state == GameState.SERVER_SELECTION:
+                    result = self.server_selection_screen.handle_input(event)
+                    if result == "auth":
+                        self.game_state = GameState.LOGIN
+                
+                # Team selection input
+                elif self.game_state == GameState.TEAM_SELECTION:
+                    result = self.team_selection_screen.handle_input(event)
+                    if result:
+                        # Connect with selected team
+                        asyncio.create_task(self._connect_with_team(result))
             
             # Menu navigation
             if self.game_state == GameState.PLAYING and self.menu.active:
@@ -991,6 +1131,11 @@ class Game:
     def update(self):
         self.input_manager.update()
         self.game_client.process_messages()
+        
+        # Handle connection state
+        if self.game_state == GameState.CONNECTING and self.game_client.connected and self.game_client.player_id:
+            self.game_state = GameState.PLAYING
+            self.player_local_id = self.game_client.player_id
         
         if self.game_state == GameState.PLAYING:
             self._update_gameplay()
@@ -1034,7 +1179,13 @@ class Game:
             self.camera_pos.y += (target_y - self.camera_pos.y) * smoothing
     
     def draw(self):
-        if self.game_state in [GameState.LOGIN, GameState.REGISTER]:
+        if self.game_state == GameState.SERVER_SELECTION:
+            self.server_selection_screen.draw(screen)
+        
+        elif self.game_state == GameState.TEAM_SELECTION:
+            self.team_selection_screen.draw(screen)
+        
+        elif self.game_state in [GameState.LOGIN, GameState.REGISTER]:
             self.auth_screen.draw(screen)
         
         elif self.game_state == GameState.PLAYING:
