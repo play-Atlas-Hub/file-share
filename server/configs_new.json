@@ -343,3 +343,8 @@
     {"Name": "Block Size", "slot": "Weapon 2", "multiplier": 1.1, "applicable_tanks": ["BL"]},
     {"Name": "Block Fire rate", "slot": "Weapon 3", "multiplier": 1.1, "applicable_tanks": ["BL"]},
     {"Name": "Block Damage Per Tick", "slot": "Weapon 4", "multiplier": 1.1, "applicable_tanks": ["BL"]}
+
+
+
+
+    finish admin/debug implementation. fire rate, max health, body damage, regen,  needs to be based on tank stats and upgrades
