@@ -45,6 +45,7 @@ SERVER_MAINTENANCE_MODE = CONFIG['server']['maintenance_mode']
 SERVER_CLOSED = CONFIG['server']['closed']
 MAX_PLAYERS = CONFIG['server']['max_players']
 MAX_PLAYERS_PER_LOBBY = CONFIG['server']['max_players_per_lobby']
+MAX_PLAYERS_PER_TEAM = CONFIG['server']['max_players_per_team']
 
 # World
 WIDTH = CONFIG['world']['width']
@@ -75,7 +76,7 @@ BULLET_MAX_LIFETIME = CONFIG['bullet']['max_lifetime_seconds']
 
 # Blobs
 BLOB_SPAWN_TIME = CONFIG['blobs']['spawn_time_seconds']
-MAX_BLOB_DENSITY = CONFIG['blobs']['max_density_per_tile']
+MAX_BLOB_DENSITY = CONFIG['blobs']['max_density']
 BLOB_TYPES = CONFIG['blobs']['types']
 
 # Teams
@@ -108,8 +109,15 @@ CHAT_MAX_LENGTH = CONFIG['chat']['max_message_length']
 DAILY_REWARDS_ENABLED = CONFIG['daily_rewards']['enabled']
 DAILY_REWARD_BASE = CONFIG['daily_rewards']['base_reward']
 
-# Anti-Cheat
-ANTI_CHEAT_ENABLED = CONFIG['anti_cheat']['enabled', False]
+# Server utility config
+AUTO_SAVE_INTERVAL = CONFIG['server'].get('auto_save_interval_minutes', 2) * 60
+VERIFIED_SERVER_IPS = CONFIG['server'].get('verified_server_ip_list', [])
+RESOURCE_TO_CURRENCY_RATIO = CONFIG['server'].get('Resource_To_Currency_Conversion_Ratio', '5:3')
+
+# Debug
+DEBUG_CONFIG = CONFIG.get('debug', {})
+DEBUG_ENABLED = DEBUG_CONFIG.get('enabled', False)
+DEBUG_NETWORK = DEBUG_CONFIG.get('network', False)
 
 # Admin
 ADMIN_CREDENTIALS = CONFIG['admin']['credentials']
@@ -275,51 +283,10 @@ def verify_token(token):
         return None
 
 # ==================== ANTI-CHEAT ====================
-class AntiCheat:
-    def __init__(self):
-        self.player_positions = {}
-        self.player_last_action_time = {}
-    
-    def check_speed_hack(self, player_id, new_x, new_y):
-        if player_id not in self.player_positions:
-            self.player_positions[player_id] = (new_x, new_y)
-            return False
-        
-        old_x, old_y = self.player_positions[player_id]
-        dist = math.sqrt((old_x - new_x)**2 + (old_y - new_y)**2)
-        max_distance = PLAYER_SPEED * 1.5
-        
-        if dist > max_distance:
-            return True
-        
-        self.player_positions[player_id] = (new_x, new_y)
-        return False
-    
-    def check_rate_limit(self, player_id, action_type):
-        key = (player_id, action_type)
-        last_time = self.player_last_action_time.get(key, 0)
-        current_time = time.time()
-        
-        if action_type == 'shoot':
-            min_interval = 0.05
-        elif action_type == 'move':
-            min_interval = 0.01
-        else:
-            min_interval = 0.1
-        
-        if current_time - last_time < min_interval:
-            return False
-        
-        self.player_last_action_time[key] = current_time
-        return True
-    
-    def log_suspicious(self, user_id, action, details):
-        DB.execute(
-            'INSERT INTO suspicious_activity (user_id, action, details, timestamp) VALUES (?, ?, ?, ?)',
-            (user_id, action, details, datetime.now())
-        )
-
-ANTI_CHEAT = AntiCheat() if ANTI_CHEAT_ENABLED else None
+# Anti-cheat logic is disabled in this build. The server relies on game rules
+# and client honesty for movement/shooting state, while still keeping the config
+# available for future implementation.
+ANTI_CHEAT = None
 
 # ==================== PLAYER CLASS ====================
 class Player:
@@ -348,6 +315,8 @@ class Player:
         self.tank = self._get_tank_by_name(DEFAULT_TANK)
         self.upgrades = {}
         self.last_shot_time = 0
+        self.stats = self._calculate_stats()
+        self.resources = 0
         
         self.alive = True
         self.state = PlayerState.ALIVE
@@ -373,7 +342,64 @@ class Player:
                 return tank
         return TANKS_CONFIG[0]
     
+    def _calculate_stats(self):
+        stats = self.tank.get('stats', {}).copy()
+        stats.setdefault('health_regen', HEALTH_REGEN)
+        stats.setdefault('bullet_speed', BULLET_SPEED)
+        stats.setdefault('fire_rate', stats.get('fire_rate', 0.1))
+        stats.setdefault('damage', stats.get('damage', 1))
+        stats.setdefault('speed', stats.get('speed', PLAYER_SPEED))
+        stats.setdefault('body_damage', stats.get('body_damage', 10))
+        stats.setdefault('bullet_health', 1)
+        stats.setdefault('bullet_range', 200)
+
+        for upgrade_name, level in self.upgrades.items():
+            upgrade = next((u for u in UPGRADES_CONFIG if u['name'] == upgrade_name), None)
+            if not upgrade:
+                continue
+            multiplier = upgrade.get('multiplier', 1.0) ** level
+            slot = upgrade.get('slot', '')
+
+            if slot == 'weapon_1':
+                stats['bullet_health'] = stats.get('bullet_health', 1) * multiplier
+                stats['bullet_range'] = stats.get('bullet_range', 200) * multiplier
+            elif slot == 'weapon_2':
+                stats['bullet_speed'] = stats.get('bullet_speed', BULLET_SPEED) * multiplier
+            elif slot == 'weapon_3':
+                stats['fire_rate'] = max(0.02, stats.get('fire_rate', 0.1) / multiplier)
+            elif slot == 'weapon_4':
+                stats['damage'] = stats.get('damage', 1) * multiplier
+            elif slot == 'health_1':
+                stats['health'] = int(stats.get('health', PLAYER_MAX_HEALTH) * multiplier)
+            elif slot == 'health_2':
+                stats['health_regen'] = stats.get('health_regen', HEALTH_REGEN) * multiplier
+            elif slot == 'tank_1':
+                stats['speed'] = stats.get('speed', PLAYER_SPEED) * multiplier
+            elif slot == 'tank_2':
+                stats['body_damage'] = stats.get('body_damage', 10) * multiplier
+
+        return stats
+
+    def recalculate_stats(self):
+        self.stats = self._calculate_stats()
+        self.max_health = self.stats.get('health', PLAYER_MAX_HEALTH)
+        if self.health > self.max_health:
+            self.health = self.max_health
+
+    def update_rank(self):
+        new_rank = self.rank
+        for threshold in sorted(RANK_THRESHOLDS, key=lambda x: x.get('rank', 0)):
+            if (self.resources >= threshold.get('required_money', 0) and
+                self.kills >= threshold.get('required_kills', 0) and
+                self.assists >= threshold.get('required_assists', 0)):
+                new_rank = threshold.get('rank', new_rank)
+        self.rank = new_rank
+    
+    def sync_resources(self):
+        self.score = self.resources
+
     def to_dict(self):
+        self.sync_resources()
         return {
             "id": self.id,
             "username": self.username,
@@ -383,12 +409,16 @@ class Player:
             "health": self.health,
             "max_health": self.max_health,
             "score": self.score,
+            "resources": self.resources,
+            "money": self.money,
             "kills": self.kills,
+            "assists": self.assists,
             "team": self.team,
             "tank": self.tank['name'],
             "rank": self.rank,
             "alive": self.alive,
-            "state": self.state.value
+            "state": self.state.value,
+            "lobby_id": self.lobby_id
         }
     
     def take_damage(self, damage, attacker_id=None):
@@ -408,20 +438,26 @@ class Player:
             if attacker_id and attacker_id in players:
                 attacker = players[attacker_id]
                 attacker.kills += 1
-                attacker.score += 25
-                
-                # Kill/Death penalty: transfer 1/4 of resources
+                attacker.resources += 25
+                attacker.sync_resources()
+                attacker.update_rank()
+
+                ratio_source, ratio_target = parse_resource_ratio(RESOURCE_TO_CURRENCY_RATIO)
+                resource_transfer = max(1, self.resources // 4)
+                money_transfer = max(1, int(resource_transfer * ratio_target / ratio_source))
                 rank_transfer = max(1, self.rank // 4)
-                resource_transfer = max(1, self.score // 4)
-                money_transfer = max(1, self.money // 4)
                 
-                attacker.rank += rank_transfer
-                attacker.score += resource_transfer
+                attacker.resources += resource_transfer
                 attacker.money += money_transfer
+                attacker.rank += rank_transfer
+                attacker.sync_resources()
+                attacker.update_rank()
                 
                 self.rank = max(1, self.rank - rank_transfer)
-                self.score = max(0, self.score - resource_transfer)
+                self.resources = max(0, self.resources - resource_transfer)
                 self.money = max(0, self.money - money_transfer)
+                self.sync_resources()
+                self.update_rank()
             
             return True
         return False
@@ -481,6 +517,7 @@ class Bullet:
             "x": self.x,
             "y": self.y,
             "owner_id": self.owner_id,
+            "owner_team": self.owner_team,
             "radius": self.radius
         }
 
@@ -502,6 +539,9 @@ class Lobby:
         if len(self.players) >= self.max_players:
             return False
         self.players[player_id] = player_obj
+        team_id = player_obj.team
+        if team_id in self.teams and player_id not in self.teams[team_id]:
+            self.teams[team_id].append(player_id)
         return True
     
     def remove_player(self, player_id):
@@ -560,6 +600,15 @@ def get_msg(key, **kwargs):
 
 def distance(x1, y1, x2, y2):
     return math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+
+def parse_resource_ratio(ratio):
+    try:
+        left, right = ratio.split(':')
+        left_val = float(left)
+        right_val = float(right)
+        return left_val, right_val
+    except Exception:
+        return 5.0, 3.0
 
 def calculate_direction_vector(angle):
     return math.cos(angle), math.sin(angle)
@@ -620,9 +669,37 @@ async def broadcast_state():
             "is_day": is_day,
             "cycle_time": cycle_time,
             "brightness": brightness
-        }
+        },
+        "lobbies": [lobby.get_status() for lobby in lobbies.values()]
     }
     await broadcast(state)
+
+def is_ip_allowed(websocket):
+    addr = websocket.remote_address[0] if websocket.remote_address else ''
+    if addr in ('127.0.0.1', '::1'):
+        return True
+    if '0.0.0.0' in VERIFIED_SERVER_IPS:
+        return True
+    return addr in VERIFIED_SERVER_IPS
+
+
+def find_or_create_lobby():
+    global next_lobby_id
+    for lobby in lobbies.values():
+        if lobby.state == LobbyState.WAITING and len(lobby.players) < lobby.max_players:
+            return lobby
+    lobby = Lobby(next_lobby_id, INITIAL_GAME_MODE, max_players=MAX_PLAYERS_PER_LOBBY)
+    lobbies[next_lobby_id] = lobby
+    next_lobby_id += 1
+    return lobby
+
+
+def broadcast_lobby_update(lobby):
+    payload = {
+        "type": "lobby_update",
+        "lobby": lobby.get_status()
+    }
+    return broadcast(payload)
 
 # ==================== MESSAGE HANDLERS ====================
 async def handle_move(player_id, data):
@@ -633,18 +710,14 @@ async def handle_move(player_id, data):
     if not player.alive:
         return
     
-    if ANTI_CHEAT and ANTI_CHEAT.check_speed_hack(player_id, data.get('x', player.x), 
-                                                   data.get('y', player.y)):
-        anti_cheat_flags[player_id] += 1
-        return
-    
     vx = data.get('vx', 0)
     vy = data.get('vy', 0)
     
     speed = math.sqrt(vx**2 + vy**2)
+    movement_speed = player.stats.get('speed', PLAYER_SPEED)
     if speed > 0:
-        vx = (vx / speed) * PLAYER_SPEED
-        vy = (vy / speed) * PLAYER_SPEED
+        vx = (vx / speed) * movement_speed
+        vy = (vy / speed) * movement_speed
     
     player.vx = vx
     player.vy = vy
@@ -669,23 +742,20 @@ async def handle_shoot(player_id, data):
         return
     
     current_time = time.time()
-    fire_rate = player.tank['stats'].get('fire_rate', 0.1)
+    fire_rate = player.stats.get('fire_rate', 0.1)
     
-    if current_time - player.last_shot_time < fire_rate:  # needs to be based on tank stats and upgrades
-        return
-    
-    if ANTI_CHEAT and not ANTI_CHEAT.check_rate_limit(player_id, 'shoot'):
-        anti_cheat_flags[player_id] += 1
+    if current_time - player.last_shot_time < fire_rate:
         return
     
     player.last_shot_time = current_time
     
     angle = data.get('angle', 0)
     vx, vy = calculate_direction_vector(angle)
+    bullet_speed = player.stats.get('bullet_speed', BULLET_SPEED)
     
     bullet = Bullet(next_bullet_id, player.x, player.y,
-                   vx * BULLET_SPEED, vy * BULLET_SPEED,
-                   player_id, player.team) # needs to be based on tank stats and upgrades
+                   vx * bullet_speed, vy * bullet_speed,
+                   player_id, player.team)
     
     bullets.append(bullet)
     next_bullet_id += 1
@@ -741,6 +811,8 @@ async def handle_buy_tank(player_id, data):
     
     player.money -= tank['cost']
     player.tank = tank
+    player.recalculate_stats()
+    player.update_rank()
     
     await broadcast({
         "type": "tank_changed",
@@ -759,12 +831,37 @@ async def handle_buy_upgrade(player_id, data):
     if not upgrade:
         return
     
+    applicable = upgrade.get('applicable_tanks', [])
+    current_tank_type = player.tank.get('type')
+    if applicable and 'all' not in applicable and current_tank_type not in applicable:
+        await clients[player_id].send(json.dumps({
+            "type": "error",
+            "message": "Upgrade not available for current tank"
+        }))
+        return
+    
+    slot = upgrade.get('slot')
+    max_per_slot = CONFIG['upgrades'].get('max_per_slot', 10)
+    current_level = player.upgrades.get(upgrade_name, 0)
+    if current_level >= max_per_slot:
+        await clients[player_id].send(json.dumps({
+            "type": "error",
+            "message": "Upgrade slot already at maximum"
+        }))
+        return
+    
     cost = UPGRADE_COST
     if player.money < cost:
+        await clients[player_id].send(json.dumps({
+            "type": "error",
+            "message": "Not enough money"
+        }))
         return
     
     player.money -= cost
-    player.upgrades[upgrade_name] = player.upgrades.get(upgrade_name, 0) + 1
+    player.upgrades[upgrade_name] = current_level + 1
+    player.recalculate_stats()
+    player.update_rank()
     
     await broadcast({
         "type": "upgrade_bought",
@@ -801,7 +898,12 @@ async def disconnect_player(player_id):
         player = players[player_id]
         
         if player.lobby_id in lobbies:
-            lobbies[player.lobby_id].remove_player(player_id)
+            lobby = lobbies[player.lobby_id]
+            lobby.remove_player(player_id)
+            if not lobby.players and not lobby.spectators:
+                del lobbies[player.lobby_id]
+            else:
+                await broadcast_lobby_update(lobby)
         
         await broadcast({
             "type": "player_left",
@@ -1075,8 +1177,16 @@ async def handle_game_client(websocket, path):
         if team_id not in range(1, NUM_TEAMS + 1):
             team_id = 1
         
+        if not is_ip_allowed(websocket):
+            await websocket.send(json.dumps({"type": "error", "message": "IP not allowed"}))
+            await websocket.close()
+            return
+
         # Create player
         player = Player(player_id, username, payload['user_id'], team_id)
+        lobby = find_or_create_lobby()
+        lobby.add_player(player_id, player)
+        player.lobby_id = lobby.id
         players[player_id] = player
         clients[player_id] = websocket
         
@@ -1100,9 +1210,19 @@ async def handle_game_client(websocket, path):
         }))
 
         await websocket.send(json.dumps({
-            "type": "server_configs",
-            }
-        ))
+            "type": "server_config",
+            "tanks": {"list": TANKS_CONFIG},
+            "upgrades": {"list": UPGRADES_CONFIG, "cost_per_upgrade": UPGRADE_COST},
+            "ranks": {"thresholds": RANK_THRESHOLDS},
+            "player": {"radius": PLAYER_RADIUS, "barrel_length": 25, "shot_cooldown": 0.1},
+            "world": {"width": WIDTH, "height": HEIGHT, "screens_x": WORLD_SCREENS_X, "screens_y": WORLD_SCREENS_Y},
+            "display": CONFIG.get('display', {})
+        }))
+
+        await websocket.send(json.dumps({
+            "type": "lobby_update",
+            "lobby": lobby.get_status()
+        }))
         
         # Broadcast player joined
         await broadcast({
@@ -1174,7 +1294,7 @@ async def update_loop():
                 if bullet in bullets:
                     bullets.remove(bullet)
             
-            # Blob-bullet collisions, add player to blob collisions...
+            # Blob-bullet collisions
             blobs_to_remove = []
             for blob in list(blobs):
                 for bullet in list(bullets):
@@ -1188,13 +1308,62 @@ async def update_loop():
                             if bullet.owner_id in players:
                                 owner = players[bullet.owner_id]
                                 owner.money += blob.reward
-                                owner.score += blob.reward
-                                owner.kills += 1
+                                owner.resources += blob.reward
+                                owner.sync_resources()
+                                owner.update_rank()
             
             for blob in blobs_to_remove:
                 if blob in blobs:
                     blobs.remove(blob)
-            
+
+            # Player-blob collisions
+            for blob in list(blobs):
+                for player in list(players.values()):
+                    if not player.alive:
+                        continue
+                    if distance(blob.x, blob.y, player.x, player.y) < blob.radius + PLAYER_RADIUS:
+                        player.take_damage(1)  # Should damage be adjusted based on blob type?
+                        blob.hp -= 1
+                        if blob.hp <= 0:
+                            if blob in blobs:
+                                blobs.remove(blob)
+                            player.money += blob.reward
+                            player.resources += blob.reward
+                            player.sync_resources()
+                            player.update_rank()
+                        break  # Only one player collects per blob per tick
+
+            # Player-bullet collisions
+            bullets_to_remove = []
+            for bullet in list(bullets):
+                if bullet.owner_id not in players:
+                    continue
+                owner = players[bullet.owner_id]
+                lobby = lobbies.get(owner.lobby_id)
+                team_match = lobby and any(
+                    mode.get('name') == lobby.game_mode and mode.get('teams', 0) > 0
+                    for mode in GAME_MODES
+                )
+                for player in list(players.values()):
+                    if not player.alive or player.id == bullet.owner_id:
+                        continue
+                    if distance(player.x, player.y, bullet.x, bullet.y) < PLAYER_RADIUS + bullet.radius:
+                        if team_match and player.team == bullet.owner_team:
+                            continue
+                        damage = owner.stats.get('damage', 1)
+                        if player.take_damage(damage, bullet.owner_id):
+                            if lobby and lobby.game_mode != 'Free For All':
+                                lobby.team_scores.setdefault(owner.team, 0)
+                                lobby.team_scores[owner.team] += 1
+                                await broadcast_lobby_update(lobby)
+                        if bullet in bullets:
+                            bullets_to_remove.append(bullet)
+                        break
+
+            for bullet in bullets_to_remove:
+                if bullet in bullets:
+                    bullets.remove(bullet)
+
             # Player-player collisions, add player to blob collisions... are we missing player-bullet/bullet-player collisions?
             player_list = list(players.values())
             for i, p1 in enumerate(player_list):
@@ -1204,7 +1373,7 @@ async def update_loop():
                     if not p2.alive:
                         continue
                     if distance(p1.x, p1.y, p2.x, p2.y) < PLAYER_RADIUS * 2:
-                        damage = 5 # this should be based on tank stats and upgrades
+                        damage = max(1, int((p1.stats.get('body_damage', 10) + p2.stats.get('body_damage', 10)) / 2))
                         p1.take_damage(damage, p2.id)
                         p2.take_damage(damage, p1.id)
             

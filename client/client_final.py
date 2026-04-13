@@ -36,7 +36,7 @@ except FileNotFoundError:
     sys.exit(1)
 
 # Load server index metadata
-SERVER_INDEX_DATA = server_config_message
+SERVER_INDEX_DATA = {}
 
 TANK_INDEX = SERVER_INDEX_DATA.get('tanks', {}).get('list', [])
 UPGRADE_COST = SERVER_INDEX_DATA.get('upgrades', {}).get('cost_per_upgrade', 20)
@@ -334,23 +334,53 @@ class Blob:
                            (int(screen_x - self.radius), int(screen_y - self.radius), 
                             self.radius*2, self.radius*2))
         elif self.type == 'pentagon':
-            # create handeler
-            pass
+            points = []
+            for i in range(5):
+                angle = math.pi * 2 * i / 5
+                px = screen_x + math.cos(angle) * self.radius
+                py = screen_y + math.sin(angle) * self.radius
+                points.append((px, py))
+            pygame.draw.polygon(surface, color, points)
         elif self.type == 'hexagon':
-            # create handeler
-            pass
+            points = []
+            for i in range(6):
+                angle = math.pi * 2 * i / 6
+                px = screen_x + math.cos(angle) * self.radius
+                py = screen_y + math.sin(angle) * self.radius
+                points.append((px, py))
+            pygame.draw.polygon(surface, color, points)
         elif self.type == 'heptagon':
-            # create handeler
-            pass
+            points = []
+            for i in range(7):
+                angle = math.pi * 2 * i / 7
+                px = screen_x + math.cos(angle) * self.radius
+                py = screen_y + math.sin(angle) * self.radius
+                points.append((px, py))
+            pygame.draw.polygon(surface, color, points)
         elif self.type == 'octagon':
-            # create handeler
-            pass
+            points = []
+            for i in range(8):
+                angle = math.pi * 2 * i / 8
+                px = screen_x + math.cos(angle) * self.radius
+                py = screen_y + math.sin(angle) * self.radius
+                points.append((px, py))
+            pygame.draw.polygon(surface, color, points)
         elif self.type == 'nonagon':
-            # create handeler
-            pass
+            points = []
+            for i in range(9):
+                angle = math.pi * 2 * i / 9
+                px = screen_x + math.cos(angle) * self.radius
+                py = screen_y + math.sin(angle) * self.radius
+                points.append((px, py))
+            pygame.draw.polygon(surface, color, points)
         elif self.type == 'decagon':
-            # create handeler
-            pass
+            points = []
+            for i in range(10):
+                angle = math.pi * 2 * i / 10
+                px = screen_x + math.cos(angle) * self.radius
+                py = screen_y + math.sin(angle) * self.radius
+                points.append((px, py))
+            pygame.draw.polygon(surface, color, points)
         
         # Draw health bar above blob
         health_width = 30
@@ -365,11 +395,12 @@ class Blob:
 
 class Bullet:
     """Projectile in the game"""
-    def __init__(self, bullet_id, x, y, owner_id):
+    def __init__(self, bullet_id, x, y, owner_id, owner_team):
         self.id = bullet_id
         self.x = x
         self.y = y
         self.owner_id = owner_id
+        self.owner_team = owner_team
         self.radius = 3
         self.creation_time = time.time()
     
@@ -379,7 +410,8 @@ class Bullet:
         screen_y = self.y - camera_pos[1] + SCREEN_HEIGHT/2
         
         if -50 < screen_x < SCREEN_WIDTH + 50 and -50 < screen_y < SCREEN_HEIGHT + 50:
-            pygame.draw.circle(surface, self.owner_id.team_id.team_color, (int(screen_x), int(screen_y)), self.radius)
+            color = get_team_color(self.owner_team)
+            pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), self.radius)
 
 # ==================== MENU SYSTEM ====================
 class MenuItem:
@@ -403,6 +435,14 @@ class Menu:
         self.last_nav_time = 0.0
         self.nav_delay = 0.18
         self.init_menus()
+        
+        # Set previewed_tank to the first available tank
+        self.previewed_tank = None
+        if self.menus.get('tank_index'):
+            for item in self.menus['tank_index']:
+                if hasattr(item, 'meta') and item.meta and 'tank' in item.meta:
+                    self.previewed_tank = item.meta['tank']
+                    break
     
     def init_menus(self):
         """Initialize all menu structures"""
@@ -412,12 +452,13 @@ class Menu:
                 MenuItem("Tank Upgrades (Q)", self.show_tank_upgrades),
                 MenuItem("Skill Upgrades (E)", self.show_skill_upgrades),
                 MenuItem("Tank Index", self.show_tank_index),
-                MenuItem("Tank Menu", self.show_tank_index),
-                MenuItem("Skill Menu", self.show_skill_index),
+                MenuItem("Tank Menu", self.show_tank_menu),
+                MenuItem("Skill Menu", self.show_skill_menu),
                 MenuItem("Rank Index", self.show_rank_index),
                 MenuItem("Profile", self.show_profile),
                 MenuItem("Settings", self.show_settings),
                 MenuItem("Tutorial", self.show_tutorial),
+                MenuItem("Admin Login", self.show_admin_login),
                 MenuItem("Disconnect", self.disconnect),
                 MenuItem("Quit to Desktop", self.quit_game)
             ],
@@ -434,7 +475,8 @@ class Menu:
             'skill_menu': self.build_skill_menu(),
             'rank_index': self.build_rank_menu(),
             'profile': self.build_profile_menu(),
-            'tutorial': self.build_tutorial_menu()
+            'tutorial': self.build_tutorial_menu(),
+            'admin_login': self.build_admin_login_menu()
         }
     
     def build_tank_INDEX_menu(self):
@@ -531,6 +573,15 @@ class Menu:
         ]
         items = [MenuItem(line, None) for line in tutorial_lines]
         items.append(MenuItem("Back", self.back_to_main))
+        return items
+    
+    def build_admin_login_menu(self):
+        items = [
+            MenuItem("=== ADMIN LOGIN ===", None),
+            MenuItem("Note: Admin login requires server credentials.", None),
+            MenuItem("Attempt Login (uses hardcoded credentials for demo)", self.attempt_admin_login),
+            MenuItem("Back", self.back_to_main)
+        ]
         return items
     
     def toggle(self):
@@ -704,7 +755,7 @@ class Menu:
     def show_tank_menu(self):
         self.current_menu = 'tank_menu'
         self.selected_option = 2 if len(self.menus.get('tank_menu', [])) > 2 else 0
-        self.previewed_tank = TANK_MENU[0] if TANK_MENU else None
+        self.previewed_tank = TANK_INDEX[0] if TANK_INDEX else None
 
     def show_skill_menu(self):
         self.current_menu = 'skill_menu'
@@ -790,6 +841,9 @@ class Menu:
 
     def show_tutorial(self):
         self.current_menu = 'tutorial'
+    
+    def show_admin_login(self):
+        self.current_menu = 'admin_login'
         self.selected_option = 0
 
     def disconnect(self):
@@ -983,10 +1037,10 @@ class Renderer:
         
         # Stats on left side
         y = SCREEN_HEIGHT - 120
-        score_text = text_cache.get(f"Resources: {player.get('Resources', 0)}", font_small, (100, 255, 100))
-        surface.blit(resource_text, (20, y - 40))
+        score_text = text_cache.get(f"Resources: {player.get('score', 0)}", font_small, (100, 255, 100))
+        surface.blit(score_text, (20, y - 40))
         
-        score_text = text_cache.get(f"Money: {player.get('Money', 0)}", font_small, (100, 255, 100))
+        money_text = text_cache.get(f"Money: {player.get('money', 0)}", font_small, (100, 255, 100))
         surface.blit(money_text, (20, y))
         
         rank_text = text_cache.get(f"Rank: {player.get('rank', 1)}", font_small, (100, 255, 100))
@@ -1009,6 +1063,20 @@ class Renderer:
                         (minimap_x, minimap_y, minimap_size, minimap_size))
         pygame.draw.rect(surface, (100, 100, 100), 
                         (minimap_x, minimap_y, minimap_size, minimap_size), 2)
+        
+        # Draw quadrants
+        half = minimap_size // 2
+        for team in SERVER_INDEX_DATA.get('teams', {}).get('list', []):
+            quadrant = team.get('quadrant')
+            color = team.get('color', [100, 100, 100])
+            if quadrant == 'Q1':
+                pygame.draw.rect(surface, color, (minimap_x, minimap_y, half, half))
+            elif quadrant == 'Q2':
+                pygame.draw.rect(surface, color, (minimap_x + half, minimap_y, half, half))
+            elif quadrant == 'Q3':
+                pygame.draw.rect(surface, color, (minimap_x, minimap_y + half, half, half))
+            elif quadrant == 'Q4':
+                pygame.draw.rect(surface, color, (minimap_x + half, minimap_y + half, half, half))
         
         # Draw players
         scale = minimap_size / 9280
@@ -1192,7 +1260,11 @@ class GameClient:
     
     def _handle_message(self, data: dict):
         """Handle server message"""
+        global SERVER_INDEX_DATA
         msg_type = data.get('type')
+        
+        if msg_type == 'server_config':
+            SERVER_INDEX_DATA = data
         
         if msg_type == 'state':
             # Update players
@@ -1228,7 +1300,7 @@ class GameClient:
                 bullet_id = bullet_data['id']
                 self.bullets[bullet_id] = Bullet(
                     bullet_id, bullet_data['x'], bullet_data['y'],
-                    bullet_data['owner_id']
+                    bullet_data['owner_id'], bullet_data.get('owner_team', 1)
                 )
             
             # Update day/night
@@ -1278,7 +1350,7 @@ class GameClient:
     
     async def send_shoot(self, angle: float):
         """Send shoot to server"""
-        if self.game_ws and self.connected and (time_since_last_shot() > (SERVER_INDEX_DATA.get('player', {}).get('shot_cooldown', 0.5) + current_skill_fire_rate_multiplier_level)):
+        if self.game_ws and self.connected:
             try:
                 await self.game_ws.send(json.dumps({
                     'type': 'shoot',
@@ -1765,6 +1837,28 @@ class Game:
             self.game_state = GameState.ERROR
             self.error_screen = ErrorScreen(str(e))
     
+    def attempt_admin_login(self):
+        """Attempt admin login with hardcoded credentials"""
+        # For demo, use first admin credential
+        admin_creds = SERVER_INDEX_DATA.get('admin', {}).get('credentials', {})
+        if admin_creds:
+            username = list(admin_creds.keys())[0]
+            password = admin_creds[username]
+            asyncio.create_task(self._admin_login_async(username, password))
+    
+    async def _admin_login_async(self, username, password):
+        """Async admin login"""
+        try:
+            # Send admin login message
+            await self.game_client.websocket.send(json.dumps({
+                "type": "admin_login",
+                "username": username,
+                "password": password
+            }))
+            print(f"[DEBUG] Attempted admin login for {username}")
+            # Note: Response handling would need to be added in _handle_message
+        except Exception as e:
+            print(f"[ERROR] Admin login failed: {e}")
     def draw(self):
         """Draw game screen"""
         if self.game_state in (GameState.LOGIN, GameState.REGISTER):
