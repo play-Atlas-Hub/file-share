@@ -89,7 +89,7 @@
           "damage": 1,
           "body_damage": 10
         },
-        "abilities": ["none"]
+        "abilities": ["reg"]
       },
       {
         "name": "Freeze Tank",
