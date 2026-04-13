@@ -45,6 +45,7 @@
     "radius": 5,
     "max_lifetime_seconds": 28,
     "decay_enabled": true
+    "types": ["reg","freeze","flame","ray","grind","block","snipe"]
   },
   "blobs": {
     "spawn_time_seconds": 8,
@@ -136,7 +137,7 @@
           "body_damage": 8,
           "penetration": 3
         },
-        "abilities": ["laser_beam"]
+        "abilities": ["ray"]
       },
       {
         "name": "Grinder Tank",
@@ -347,4 +348,4 @@
 
 
 
-    finish admin/debug implementation. fire rate, max health, body damage, regen,  needs to be based on tank stats and upgrades
+    finish admin/debug implementation. fire rate, max health, body damage, regen, bullet radius, bullet health, bullet speed, tank size needs, and bullet range in server to be based on tank stats and upgrades
