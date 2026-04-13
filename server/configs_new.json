@@ -44,7 +44,7 @@
     "speed": 3,
     "radius": 5,
     "max_lifetime_seconds": 28,
-    "decay_enabled": true
+    "decay_enabled": true,
     "types": ["reg","freeze","flame","ray","grind","block","snipe"]
   },
   "blobs": {
