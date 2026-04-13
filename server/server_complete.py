@@ -1027,7 +1027,7 @@ async def handle_admin_command(player_id, data):
         if blob_type not in BLOB_TYPES:
             response.update({"message": "Invalid blob type"})
         else:
-            global next_blob_id
+            # global next_blob_id
             blobs.append(Blob(next_blob_id, x, y, blob_type))
             next_blob_id += 1
             response.update({"success": True, "message": f"Spawned {blob_type} at ({x}, {y})"})
