@@ -13,7 +13,7 @@ pygame.font.init()
 
 SCREEN_WIDTH = 1400
 SCREEN_HEIGHT = 900
-FPS = 60
+FPS = 84
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Server Interactive Admin Tool")

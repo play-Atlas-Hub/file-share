@@ -9,12 +9,13 @@
     "verified_server_ip_list": ["76.155.233.10", "0.0.0.0"],
     "Resource_To_Currency_Conversion_Ratio": "5:3",
     "max_players": 256,
-    "max_players_per_lobby": 64,
+    "max_players_per_lobby": 32,
     "max_players_per_team": 16
   },
   "world": {
     "width": 928,
     "height": 522,
+    "tile_size": 16,
     "screens_x": 10,
     "screens_y": 8,
     "day_night_cycle": {
@@ -43,7 +44,7 @@
   "bullet": {
     "speed": 3,
     "radius": 5,
-    "max_lifetime_seconds": 28,
+    "max_lifetime_seconds": 60,
     "decay_enabled": true
   },
   "blobs": {
@@ -103,7 +104,7 @@
           "body_damage": 12,
           "freeze_strength": 0.5
         },
-        "abilities": ["freeze_shot"]
+        "abilities": ["freeze_shot", "ice_barrier"]
       },
       {
         "name": "Flame Tank",
@@ -243,18 +244,31 @@
   "chat": {
     "enabled": true,
     "message_limit_per_second": 3,
-    "display_time_seconds": 8,
+    "display_time_seconds": 5,
     "max_message_length": 200,
     "profanity_filter": true
   },
-  "debug": {
+  "daily_rewards": {
     "enabled": true,
-    "network": true,
-    "gameplay": true,
-    "performance": false,
-    "log_level": "all",
-    "log_to_file": true,
-    "log_file_path": "server_logs.txt"
+    "base_reward": 100,
+    "login_streak_multiplier": 1.5,
+    "max_streak_days": 30
+  },
+  "tournament": {
+    "enabled": true,
+    "min_players": 4,
+    "bracket_type": "single_elimination",
+    "match_duration_seconds": 600
+  },
+  "anti_cheat": {
+    "enabled": true,
+    "speed_hack_detection": true,
+    "position_validation": true,
+    "damage_validation": true,
+    "resource_validation": true,
+    "auto_ban_on_detection": false,
+    "suspicious_action_threshold": 10,
+    "ban_duration_minutes": 1440
   },
   "admin": {
     "credentials": {
