@@ -581,7 +581,7 @@ class Menu:
         items = [
             MenuItem("=== ADMIN LOGIN ===", None),
             MenuItem("Note: Admin login requires server credentials.", None),
-            MenuItem("Attempt Login (uses hardcoded credentials for demo)", self.attempt_admin_login),
+            MenuItem("Attempt Login (uses hardcoded credentials for demo)", self.game.attempt_admin_login),
             MenuItem("Back", self.back_to_main)
         ]
         return items

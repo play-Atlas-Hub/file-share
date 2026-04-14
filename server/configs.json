@@ -9,13 +9,12 @@
     "verified_server_ip_list": ["76.155.233.10", "0.0.0.0"],
     "Resource_To_Currency_Conversion_Ratio": "5:3",
     "max_players": 256,
-    "max_players_per_lobby": 32,
+    "max_players_per_lobby": 64,
     "max_players_per_team": 16
   },
   "world": {
     "width": 928,
     "height": 522,
-    "tile_size": 16,
     "screens_x": 10,
     "screens_y": 8,
     "day_night_cycle": {
@@ -44,8 +43,9 @@
   "bullet": {
     "speed": 3,
     "radius": 5,
-    "max_lifetime_seconds": 60,
-    "decay_enabled": true
+    "max_lifetime_seconds": 28,
+    "decay_enabled": true,
+    "types": ["reg","freeze","flame","ray","grind","block","snipe"]
   },
   "blobs": {
     "spawn_time_seconds": 8,
@@ -73,6 +73,7 @@
     ]
   },
   "tanks": {
+    "use_image": false,
     "default": "Basic Tank",
     "list": [
       {
@@ -88,7 +89,7 @@
           "damage": 1,
           "body_damage": 10
         },
-        "abilities": ["shoot"]
+        "abilities": ["reg"]
       },
       {
         "name": "Freeze Tank",
@@ -104,7 +105,7 @@
           "body_damage": 12,
           "freeze_strength": 0.5
         },
-        "abilities": ["freeze_shot", "ice_barrier"]
+        "abilities": ["freeze"]
       },
       {
         "name": "Flame Tank",
@@ -120,7 +121,7 @@
           "body_damage": 15,
           "burn_damage": 0.5
         },
-        "abilities": ["flame_burst", "burn_aura"]
+        "abilities": ["flame"]
       },
       {
         "name": "Ray Tank",
@@ -136,7 +137,7 @@
           "body_damage": 8,
           "penetration": 3
         },
-        "abilities": ["laser_beam", "piercing_shot"]
+        "abilities": ["ray"]
       },
       {
         "name": "Grinder Tank",
@@ -152,7 +153,7 @@
           "body_damage": 20,
           "grind_radius": 50
         },
-        "abilities": ["grind_attack", "spin_defense"]
+        "abilities": ["grind"]
       },
       {
         "name": "Block Tank",
@@ -168,7 +169,7 @@
           "body_damage": 25,
           "block_health": 50
         },
-        "abilities": ["spawn_block", "shield_wall"]
+        "abilities": ["block"]
       },
       {
         "name": "Sniper Tank",
@@ -184,7 +185,7 @@
           "body_damage": 5,
           "range": 200
         },
-        "abilities": ["precision_shot", "headshot"]
+        "abilities": ["snipe"]
       },
       {
         "name": "Spammer Tank",
@@ -200,22 +201,68 @@
           "body_damage": 8,
           "spread": 5
         },
-        "abilities": ["rapid_fire", "spread_shot"]
+        "abilities": ["fire_rate"]
       }
+    ],
+    "paths": [
+      "Basic": [
+        "Freeze": [
+            "Flame": [
+                "Multi Flame"],
+            "Rail": [
+                "Multi Rail"],
+            "OP Freeze": [
+                "Multi-OP Freeze"]
+        ],
+        "Sniper": [
+            "Scout": [
+                "Assassin"],
+            "OP Sniper": [
+                "Multi-OP Sniper"]
+        ],
+        "Grinder": [
+            "Block",
+            "Multi Block"
+        ],
+        "Spammer": [
+            "Multi",
+            "OP Spammer"
+        ]
+      ]
     ]
   },
   "upgrades": {
     "cost_per_upgrade": 20,
     "max_per_slot": 10,
     "list": [
-      {"name": "Bullet Health/Range", "slot": "weapon_1", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
-      {"name": "Bullet Speed", "slot": "weapon_2", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
-      {"name": "Fire Rate", "slot": "weapon_3", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
-      {"name": "Damage Per Bullet", "slot": "weapon_4", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
-      {"name": "Max Health", "slot": "health_1", "multiplier": 1.1, "applicable_tanks": ["all"]},
-      {"name": "Health Regen", "slot": "health_2", "multiplier": 1.1, "applicable_tanks": ["all"]},
-      {"name": "Tank Speed", "slot": "tank_1", "multiplier": 1.1, "applicable_tanks": ["all"]},
-      {"name": "Body Damage Per Tick", "slot": "tank_2", "multiplier": 1.1, "applicable_tanks": ["all"]}
+      {"Name": "Bullet Health/Range", "slot": "Weapon 1", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
+      {"Name": "Bullet Speed", "slot": "Weapon 2", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
+      {"Name": "Fire Rate", "slot": "Weapon 3", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
+      {"Name": "Damage Per Bullet", "slot": "Weapon 4", "multiplier": 1.1, "applicable_tanks": ["BA", "SN", "SP"]},
+      {"Name": "Max Health", "slot": "Health 1", "multiplier": 1.1, "applicable_tanks": ["all"]},
+      {"Name": "Health Regen", "slot": "Health 2", "multiplier": 1.1, "applicable_tanks": ["all"]},
+      {"Name": "Tank Speed", "slot": "Tank 1", "multiplier": 1.1, "applicable_tanks": ["all"]},
+      {"Name": "Body Damage Per Tick", "slot": "Tank 2", "multiplier": 1.1, "applicable_tanks": ["all"]},
+      {"Name": "Freeze Damage", "slot": "Weapon 4", "multiplier": 1.1, "applicable_tanks": ["FR"]},
+      {"Name": "Freeze Range", "slot": "Weapon 2", "multiplier": 1.1, "applicable_tanks": ["FR"]},
+      {"Name": "Freeze Rate", "slot": "Weapon 3", "multiplier": 1.1, "applicable_tanks": ["FR"]},
+      {"Name": "Freeze Density", "slot": "Weapon 1", "multiplier": 1.1, "applicable_tanks": ["FR"]},
+      {"Name": "Flame Damage", "slot": "Weapon 4", "multiplier": 1.1, "applicable_tanks": ["FL"]},
+      {"Name": "Flame Range", "slot": "Weapon 2", "multiplier": 1.1, "applicable_tanks": ["FL"]},
+      {"Name": "Flame Rate", "slot": "Weapon 3", "multiplier": 1.1, "applicable_tanks": ["FL"]},
+      {"Name": "Flame Density", "slot": "Weapon 1", "multiplier": 1.1, "applicable_tanks": ["FL"]},
+      {"Name": "Ray Cooldown", "slot": "Weapon 3", "multiplier": 1.1, "applicable_tanks": ["R"]},
+      {"Name": "Ray Damage Per Tick", "slot": "Weapon 4", "multiplier": 1.1, "applicable_tanks": ["R"]},
+      {"Name": "Ray Damage Reduction Per Penetration", "slot": "Weapon 1", "multiplier": 1.1, "applicable_tanks": ["R"]},
+      {"Name": "Ray Max Penetrations", "slot": "Weapon 2", "multiplier": 1.1, "applicable_tanks": ["R"]},
+      {"Name": "Grinder Rate", "slot": "Weapon 3", "multiplier": 1.1, "applicable_tanks": ["G"]},
+      {"Name": "Grinder Damage", "slot": "Weapon 4", "multiplier": 1.1, "applicable_tanks": ["G"]},
+      {"Name": "Grinder Range(Size)", "slot": "Weapon 1", "multiplier": 1.1, "applicable_tanks": ["G"]},
+      {"Name": "Extra Tank Health", "slot": "Weapon 2", "multiplier": 1.1, "applicable_tanks": ["G"]},
+      {"Name": "Block Health", "slot": "Weapon 1", "multiplier": 1.1, "applicable_tanks": ["BL"]},
+      {"Name": "Block Size", "slot": "Weapon 2", "multiplier": 1.1, "applicable_tanks": ["BL"]},
+      {"Name": "Block Fire rate", "slot": "Weapon 3", "multiplier": 1.1, "applicable_tanks": ["BL"]},
+      {"Name": "Block Damage Per Tick", "slot": "Weapon 4", "multiplier": 1.1, "applicable_tanks": ["BL"]}
     ]
   },
   "ranks": {
@@ -244,31 +291,18 @@
   "chat": {
     "enabled": true,
     "message_limit_per_second": 3,
-    "display_time_seconds": 5,
+    "display_time_seconds": 8,
     "max_message_length": 200,
     "profanity_filter": true
   },
-  "daily_rewards": {
+  "debug": {
     "enabled": true,
-    "base_reward": 100,
-    "login_streak_multiplier": 1.5,
-    "max_streak_days": 30
-  },
-  "tournament": {
-    "enabled": true,
-    "min_players": 4,
-    "bracket_type": "single_elimination",
-    "match_duration_seconds": 600
-  },
-  "anti_cheat": {
-    "enabled": true,
-    "speed_hack_detection": true,
-    "position_validation": true,
-    "damage_validation": true,
-    "resource_validation": true,
-    "auto_ban_on_detection": false,
-    "suspicious_action_threshold": 10,
-    "ban_duration_minutes": 1440
+    "network": true,
+    "gameplay": true,
+    "performance": false,
+    "log_level": "all",
+    "log_to_file": true,
+    "log_file_path": "server_logs.txt"
   },
   "admin": {
     "credentials": {

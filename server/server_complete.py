@@ -9,6 +9,7 @@ import sqlite3
 import hashlib
 import uuid
 import jwt
+import os
 from datetime import datetime, timedelta
 from enum import Enum
 from collections import defaultdict
@@ -17,7 +18,8 @@ import threading
 # ==================== CONFIG LOADING ====================
 def load_config():
     try:
-        with open('configs.json', 'r') as f:
+        config_path = os.path.join(os.path.dirname(__file__), 'configs.json')
+        with open(config_path, 'r') as f:
             return json.load(f)
     except FileNotFoundError:
         print("ERROR: configs.json not found!")
