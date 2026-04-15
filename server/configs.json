@@ -204,14 +204,14 @@
         "abilities": ["fire_rate"]
       }
     ],
-    "paths": [
+    "paths": {
       "Basic": [
-        "Freeze": [{"Flame": ["Multi Flame"]}, {"Rail": ["Multi Rail"]}, {"OP Freeze": ["Multi-OP Freeze"]}],
-        "Sniper": [{"Scout": ["Assassin"]}, {"OP Sniper": ["Multi-OP Sniper"]}],
-        "Grinder": ["Block", "Multi Block"],
-        "Spammer": ["Multi", "OP Spammer"]
+        {"Freeze": [{"Flame": ["Multi Flame"]}, {"Rail": ["Multi Rail"]}, {"OP Freeze": ["Multi-OP Freeze"]}]},
+        {"Sniper": [{"Scout": ["Assassin"]}, {"OP Sniper": ["Multi-OP Sniper"]}]},
+        {"Grinder": ["Block", "Multi Block"]},
+        {"Spammer": ["Multi", "OP Spammer"]}
       ]
-    ]
+    }
   },
   "upgrades": {
     "cost_per_upgrade": 20,
