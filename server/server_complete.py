@@ -107,10 +107,6 @@ CHAT_ENABLED = CONFIG['chat']['enabled']
 CHAT_LIMIT = CONFIG['chat']['message_limit_per_second']
 CHAT_MAX_LENGTH = CONFIG['chat']['max_message_length']
 
-# Daily Rewards
-DAILY_REWARDS_ENABLED = CONFIG['daily_rewards']['enabled']
-DAILY_REWARD_BASE = CONFIG['daily_rewards']['base_reward']
-
 # Server utility config
 AUTO_SAVE_INTERVAL = CONFIG['server'].get('auto_save_interval_minutes', 2) * 60
 VERIFIED_SERVER_IPS = CONFIG['server'].get('verified_server_ip_list', [])
@@ -169,8 +165,6 @@ class GameDatabase:
             is_banned INTEGER DEFAULT 0,
             ban_reason TEXT,
             ban_until TIMESTAMP,
-            daily_reward_last_claimed TIMESTAMP,
-            daily_reward_streak INTEGER DEFAULT 0,
             is_guest INTEGER DEFAULT 0
         )''')
         
@@ -198,18 +192,6 @@ class GameDatabase:
             playtime_hours INTEGER DEFAULT 0,
             win_rate REAL DEFAULT 0.0,
             FOREIGN KEY(user_id) REFERENCES accounts(user_id)
-        )''')
-        
-        # Daily rewards table
-        c.execute('''CREATE TABLE IF NOT EXISTS daily_rewards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            reward_date DATE NOT NULL,
-            amount INTEGER NOT NULL,
-            streak_bonus INTEGER DEFAULT 0,
-            claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES accounts(user_id),
-            UNIQUE(user_id, reward_date)
         )''')
         
         # Suspicious activity log
@@ -1313,7 +1295,7 @@ async def handle_login_client(websocket, path):
                 "user_id": user['user_id'],
                 "username": user['username']
             }))
-        
+            """
         elif action == 'claim_daily_reward':
             token = data.get('token')
             
@@ -1371,7 +1353,7 @@ async def handle_login_client(websocket, path):
                 "total": total_reward,
                 "streak": streak
             }))
-        
+            """
         else:
             await websocket.send(json.dumps({"success": False, "error": "Unknown action"}))
     

@@ -11,11 +11,15 @@ from enum import Enum
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 
-# Try to get team input, default to 1 if problem, need to add debug server change, and or to enable debug/admin login screen(not yet implemented to server?)
+'''# Try to get team input, default to 1 if problem, need to add debug server change, and or to enable debug/admin login screen(not yet implemented to server?)
 try:
     start_team = int(input("Enter team number (1-4): ") or "1")
 except (ValueError, EOFError):
-    start_team = 1
+    start_team = 0
+finally:
+    start_team = 0
+'''
+start_team = 1
 
 # ==================== PYGAME SETUP ====================
 pygame.init()
@@ -1214,7 +1218,7 @@ class GameClient:
 
     async def register(self, username: str, email: str, password: str) -> bool:
         """Register a new account with the login server"""
-        login_url = CLIENT_CONFIG.get('network', {}).get('login_server', 'ws://127.0.0.1:8766')
+        login_url = self.game_client.login_server_url
 
         try:
             async with websockets.connect(login_url, ping_interval=20, ping_timeout=12) as ws:
