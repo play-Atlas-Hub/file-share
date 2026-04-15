@@ -6,7 +6,7 @@
     "maintenance_mode": false,
     "closed": false,
     "auto_save_interval_minutes": 2,
-    "verified_server_ip_list": ["76.155.233.10", "0.0.0.0"],
+    "verified_server_ip_list": ["76.155.233.10", "0.0.0.0","localhost","idk-school-ip"],
     "Resource_To_Currency_Conversion_Ratio": "5:3",
     "max_players": 256,
     "max_players_per_lobby": 64,
@@ -281,11 +281,11 @@
     "voting_enabled": true,
     "voting_timeout_seconds": 30,
     "modes": [
-      {"name": "Free For All", "description": "Every player for themselves", "teams": 0, "max_players": 32},
-      {"name": "2 Team", "description": "Two teams battle", "teams": 2, "max_players": 32},
-      {"name": "4 Team", "description": "Four teams compete", "teams": 4, "max_players": 32},
-      {"name": "Capture The Flag", "description": "Capture enemy flag", "teams": 2, "max_players": 32},
-      {"name": "King of the Hill", "description": "Control the hill", "teams": 2, "max_players": 32}
+      {"name": "Free For All", "description": "Every player for themselves", "teams": 0, "max_players": 64},
+      {"name": "2 Team", "description": "Two teams battle", "teams": 2, "max_players": 64},
+      {"name": "4 Team", "description": "Four teams compete", "teams": 4, "max_players": 64},
+      {"name": "Capture The Flag", "description": "Capture enemy flag", "teams": 2, "max_players": 64},
+      {"name": "King of the Hill", "description": "Control the hill", "teams": 2, "max_players": 64}
     ]
   },
   "chat": {
@@ -293,7 +293,7 @@
     "message_limit_per_second": 3,
     "display_time_seconds": 8,
     "max_message_length": 200,
-    "profanity_filter": true
+    "profanity_filter": false
   },
   "debug": {
     "enabled": true,
@@ -309,6 +309,6 @@
       "AdminUser1": "Admin@U1",
       "AdminUser2": "Admin@U2"
     },
-    "allowed_ips": ["76.155.231.10", "0.0.0.0"]
+    "allowed_ips": ["76.155.231.10", "0.0.0.0","localhost"]
   }
 }
