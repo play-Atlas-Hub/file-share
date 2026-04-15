@@ -42,8 +42,8 @@
     "effects_volume": 0.8
   },
   "network": {
-    "game_server": "ws://0.0.0.0:8765",
-    "login_server": "ws://0.0.0.0:8766",
+    "available_game_servers": ["ws://0.0.0.0:8765", "ws://localhost:8765"],
+    "available_login_servers": ["ws://0.0.0.0:8766", "ws://localhost:8766"],
     "auto_reconnect": true,
     "reconnect_delay_ms": 3000,
     "send_rate_ms": 50,
