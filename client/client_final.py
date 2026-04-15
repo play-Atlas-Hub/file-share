@@ -1433,9 +1433,10 @@ class GameClient:
 class ServerSelectionScreen:
     def __init__(self, game_client):
         self.game_client = game_client
+        #for i in available_servers: make menu with "custom" ip's
         self.servers = [
-            {"name": "Local Server", "game_url": "ws://localhost:8765", "login_url": "ws://localhost:8766"},
-            {"name": "Remote Server", "game_url": "ws://0.0.0.0:8765", "login_url": "ws://0.0.0.0:8766"},
+            {"name": "Localhost Server", "game_url": "ws://localhost:8765", "login_url": "ws://localhost:8766"},
+            {"name": "0.0.0.0 Server", "game_url": "ws://0.0.0.0:8765", "login_url": "ws://0.0.0.0:8766"},
             # Add more servers as needed
         ]
         self.selected_server = 0
