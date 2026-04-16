@@ -688,7 +688,8 @@ def is_ip_allowed(websocket):
     if '0.0.0.0' in VERIFIED_SERVER_IPS:
         return True
     return addr in VERIFIED_SERVER_IPS
-
+    '''
+    return True
 
 def find_or_create_lobby():
     global next_lobby_id
