@@ -529,7 +529,7 @@ class Bullet:
 
 # ==================== LOBBY CLASS ====================
 class Lobby:
-    def __init__(self, lobby_id, game_mode, max_players=32):
+    def __init__(self, lobby_id, game_mode, max_players=64):
         self.id = lobby_id
         self.game_mode = game_mode
         self.max_players = max_players
@@ -681,12 +681,15 @@ async def broadcast_state():
     await broadcast(state)
 
 def is_ip_allowed(websocket):
+    '''
     addr = websocket.remote_address[0] if websocket.remote_address else ''
     if addr in ('127.0.0.1', '::1'):
         return True
     if '0.0.0.0' in VERIFIED_SERVER_IPS:
         return True
     return addr in VERIFIED_SERVER_IPS
+    '''
+    return True
 
 
 def find_or_create_lobby():
