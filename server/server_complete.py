@@ -10,29 +10,48 @@ import hashlib
 import uuid
 import jwt
 import os
+import logging
+import secrets
+from pathlib import Path
 from datetime import datetime, timedelta
 from enum import Enum
 from collections import defaultdict
 import threading
 
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    env_file = Path(__file__).parent.parent / '.env'
+    if env_file.exists():
+        load_dotenv(env_file)
+except ImportError:
+    pass
+
 # ==================== CONFIG LOADING ====================
 def load_config():
+    """Load configuration from JSON file with error handling."""
     try:
         config_path = os.path.join(os.path.dirname(__file__), 'configs.json')
         with open(config_path, 'r') as f:
-            return json.load(f)
+            config = json.load(f)
+        logger.info(f"Configuration loaded from {config_path}")
+        return config
     except FileNotFoundError:
-        print("ERROR: configs.json not found!")
+        logger.error("ERROR: configs.json not found!")
         sys.exit(1)
-    except json.JSONDecodeError:
-        print("ERROR: configs.json is not valid JSON!")
+    except json.JSONDecodeError as e:
+        logger.error(f"ERROR: configs.json is not valid JSON: {e}")
         sys.exit(1)
 
 def load_messages():
+    """Load message strings from JSON file."""
     try:
         with open('msg.json', 'r') as f:
-            return json.load(f)
+            messages = json.load(f)
+        logger.debug("Messages loaded from msg.json")
+        return messages
     except FileNotFoundError:
+        logger.warning("msg.json not found, using empty messages dict")
         return {}
 
 CONFIG = load_config()
@@ -117,14 +136,33 @@ DEBUG_CONFIG = CONFIG.get('debug', {})
 DEBUG_ENABLED = DEBUG_CONFIG.get('enabled', False)
 DEBUG_NETWORK = DEBUG_CONFIG.get('network', False)
 
-# Admin
-ADMIN_CREDENTIALS = CONFIG['admin']['credentials']
-ADMIN_IPS = CONFIG['admin']['allowed_ips']
+# Admin - Load from config (passwords managed separately)
+ADMIN_CREDENTIALS = CONFIG.get('admin', {}).get('credentials', {})
+ADMIN_IPS = CONFIG.get('admin', {}).get('allowed_ips', [])
 
-# JWT
-JWT_SECRET = "q1w2e3r4t5y6-secret-key-@#$!"
+# JWT - Load from environment (CRITICAL SECURITY)
+JWT_SECRET = os.getenv('JWT_SECRET')
+if not JWT_SECRET:
+    # Fallback for development only - NEVER use in production
+    if os.getenv('DEBUG_MODE', 'false').lower() == 'true':
+        JWT_SECRET = 'dev-secret-key-change-this-in-production'
+        print("[WARNING] Using development JWT secret. Change in production!")
+    else:
+        raise ValueError(
+            "JWT_SECRET environment variable not set. "
+            "Please create a .env file with JWT_SECRET=your_secret_key"
+        )
 JWT_ALGORITHM = "HS256"
 TOKEN_EXPIRY_MINUTES = 60
+
+# Setup logging
+log_level = os.getenv('LOG_LEVEL', 'INFO')
+logging.basicConfig(
+    level=getattr(logging, log_level),
+    format='[%(asctime)s] %(levelname)-8s [%(name)s:%(funcName)s:%(lineno)d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # ==================== ENUMS ====================
 class GameState(Enum):
@@ -246,10 +284,59 @@ class GameDatabase:
 DB = GameDatabase()
 
 # ==================== AUTH HELPERS ====================
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+def hash_password(password: str) -> str:
+    """
+    Hash password with salt for secure storage.
+    
+    Args:
+        password: Plain text password to hash
+        
+    Returns:
+        Salted and hashed password
+    """
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode(),
+        salt.encode(),
+        100000  # iterations
+    ).hex()
+    return f"{salt}${password_hash}"
 
-def generate_token(user_id):
+def verify_password(password: str, hashed: str) -> bool:
+    """
+    Verify password against stored hash.
+    
+    Args:
+        password: Plain text password to verify
+        hashed: Stored salted hash
+        
+    Returns:
+        True if password matches, False otherwise
+    """
+    try:
+        salt, password_hash = hashed.split('$')
+        new_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            password.encode(),
+            salt.encode(),
+            100000
+        ).hex()
+        return new_hash == password_hash
+    except Exception as e:
+        logger.error(f"Error verifying password: {e}")
+        return False
+
+def generate_token(user_id: str) -> str:
+    """
+    Generate JWT token for authenticated user.
+    
+    Args:
+        user_id: User identifier
+        
+    Returns:
+        Encoded JWT token
+    """
     payload = {
         'user_id': user_id,
         'iat': datetime.utcnow(),
@@ -257,13 +344,24 @@ def generate_token(user_id):
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-def verify_token(token):
+def verify_token(token: str) -> dict:
+    """
+    Verify and decode JWT token.
+    
+    Args:
+        token: JWT token to verify
+        
+    Returns:
+        Decoded payload if valid, None if invalid
+    """
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
+        logger.warning("Token has expired")
         return None
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid token: {e}")
         return None
 
 # ==================== ANTI-CHEAT ====================
