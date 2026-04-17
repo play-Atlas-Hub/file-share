@@ -1,5 +1,31 @@
+# Tank Game - Python Dependencies
+
+# Game Development
+pygame==2.5.0
+Pillow==10.0.0
+
+# Network/WebSocket
 websockets==12.0
+asyncio-contextmanager==1.0.1
+
+# Authentication & Security
+PyJWT==2.9.0
+python-dotenv==1.0.0
+
+# Database
+# SQLite3 is included in Python stdlib
+
+# Development & Testing
+pytest==7.4.0
+black==23.9.0
+flake8==6.1.0
+mypy==1.5.0
+
+# Optional: Performance
+uvloop==0.17.0
+orjson==3.9.10
+
+
 Flask==3.0.0
 Flask-CORS==4.0.0
-PyJWT==2.9.0 #PyJWT==2.8.10
 Werkzeug==3.0.1

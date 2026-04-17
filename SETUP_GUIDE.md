@@ -85,24 +85,21 @@ TANK_GAME/
 ### Start the Server
 
 ```bash
-# Terminal 1 - Login Server
-python server/login_server.py
-
-# Terminal 2 - Game Server
+# Terminal 1 - Game Server
 python server/server_complete.py
 ```
 
 ### Start the Client
 
 ```bash
-# Terminal 3 - Client
+# Terminal 2 - Client
 python client/client_final.py
 ```
 
 ### Admin Panel (Optional)
 
 ```bash
-# Terminal 4 - Admin Tool
+# Terminal 3 - Admin Tool
 python server/server_interactive.py
 ```
 
@@ -343,4 +340,4 @@ For issues, questions, or suggestions:
 ---
 
 **Last Updated**: April 2026
-**Version**: 0.1
+**Version**: 0.1.0

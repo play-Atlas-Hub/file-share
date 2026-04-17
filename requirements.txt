@@ -6,10 +6,10 @@ Pillow==10.0.0
 
 # Network/WebSocket
 websockets==12.0
-asyncio-contextmanager==1.0.0
+asyncio-contextmanager==1.0.1
 
 # Authentication & Security
-PyJWT==2.8.1
+PyJWT==2.9.0
 python-dotenv==1.0.0
 
 # Database
