@@ -89,7 +89,8 @@
           "damage": 1,
           "body_damage": 10
         },
-        "abilities": ["reg"]
+        "abilities": ["reg"],
+        "path": "None"
       },
       {
         "name": "Freeze Tank",
@@ -105,7 +106,8 @@
           "body_damage": 12,
           "freeze_strength": 0.5
         },
-        "abilities": ["freeze"]
+        "abilities": ["freeze"],
+        "path": "Basic"
       },
       {
         "name": "Flame Tank",
@@ -121,7 +123,8 @@
           "body_damage": 15,
           "burn_damage": 0.5
         },
-        "abilities": ["flame"]
+        "abilities": ["flame"],
+        "path": "Basic/Freeze"
       },
       {
         "name": "Ray Tank",
@@ -137,7 +140,8 @@
           "body_damage": 8,
           "penetration": 3
         },
-        "abilities": ["ray"]
+        "abilities": ["ray"],
+        "path": "Basic/Freeze"
       },
       {
         "name": "Grinder Tank",
@@ -153,7 +157,8 @@
           "body_damage": 20,
           "grind_radius": 50
         },
-        "abilities": ["grind"]
+        "abilities": ["grind"],
+        "path": "Basic"
       },
       {
         "name": "Block Tank",
@@ -169,7 +174,8 @@
           "body_damage": 25,
           "block_health": 50
         },
-        "abilities": ["block"]
+        "abilities": ["block"],
+        "path": "Basic/Grinder"
       },
       {
         "name": "Sniper Tank",
@@ -185,7 +191,8 @@
           "body_damage": 5,
           "range": 200
         },
-        "abilities": ["snipe"]
+        "abilities": ["snipe"],
+        "path": "Basic"
       },
       {
         "name": "Spammer Tank",
@@ -201,12 +208,13 @@
           "body_damage": 8,
           "spread": 5
         },
-        "abilities": ["fire_rate"]
+        "abilities": ["fire_rate"],
+        "path": "Basic"
       }
     ],
     "paths": {
       "Basic": [
-        {"Freeze": [{"Flame": ["Multi Flame"]}, {"Rail": ["Multi Rail"]}, {"OP Freeze": ["Multi-OP Freeze"]}]},
+        {"Freeze": [{"Flame": ["Multi Flame"]}, {"Ray": ["Multi Ray"]}, {"OP Freeze": ["Multi-OP Freeze"]}]},
         {"Sniper": [{"Scout": ["Assassin"]}, {"OP Sniper": ["Multi-OP Sniper"]}]},
         {"Grinder": ["Block", "Multi Block"]},
         {"Spammer": ["Multi", "OP Spammer"]}
