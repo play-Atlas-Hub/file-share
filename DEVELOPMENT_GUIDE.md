@@ -116,14 +116,10 @@
 TANK_GAME/
 ├── server/
 │   ├── server_complete.py          ✅ Improved with logging, security
-│   ├── login_server.py
-│   ├── lobby_system.py
-│   ├── spectator_system.py
-│   ├── website.py
 │   ├── configs.json
 │   └── requirements.txt
 ├── client/
-│   ├── client_final.py             ✅ Client code (complete)
+│   ├── client_final.py             ✅ Client code (Needs to be tested)
 │   ├── client_configs.json
 │   ├── generate_grid.py
 │   └── tank_images/

@@ -100,12 +100,11 @@ TANK_GAME/
 │   └── .env.example                  # Configuration template
 │
 ├── 🖥️ Server Code
-│   ├── server/
-│   │   ├── server_complete.py        # Main server (IMPROVED)
-│   │   ├── login_server.py           # Auth server
-│   │   ├── configs.json              # Server config
-│   │   └── requirements.txt           # Server dependencies
-│   └── server_interactive.py         # Admin tool
+│   └── server/
+│       ├── server_complete.py        # Main server (IMPROVED)
+│       ├── configs.json              # Server config
+│       ├── requirements.txt           # Server dependencies
+│       └── server_interactive.py         # Admin tool
 │
 ├── 🎮 Client Code
 │   ├── client/
@@ -336,7 +335,7 @@ For questions or feedback:
 ---
 
 **Last Updated**: April 2026  
-**Version**: 1.0  
-**Status**: ✅ Production Ready  
+**Version**: 0.1  
+**Status**: DEBUG 
 
 Enjoy your Tank Game! 🎮

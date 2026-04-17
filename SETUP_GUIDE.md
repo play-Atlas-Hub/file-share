@@ -25,8 +25,7 @@ TANK_GAME/
 │   ├── server_complete.py    # Main server application
 │   ├── configs.json          # Server configuration
 │   ├── requirements.txt       # Server dependencies
-│   ├── login_server.py       # Authentication server
-│   └── website.py            # Web dashboard
+│   └── server_interactive.py         # Admin tool
 ├── utils/
 │   ├── __init__.py
 │   ├── logging_config.py     # Logging setup
@@ -75,7 +74,7 @@ TANK_GAME/
    ```
    # Generate a strong JWT secret
    # On macOS/Linux:
-   openssl rand -hex 32
+   openssl rand -hex 48
    
    # Then paste the output into .env as:
    JWT_SECRET=<your_generated_hex_string>
@@ -104,7 +103,7 @@ python client/client_final.py
 
 ```bash
 # Terminal 4 - Admin Tool
-python server_interactive.py
+python server/server_interactive.py
 ```
 
 ## Configuration
@@ -128,7 +127,7 @@ python server_interactive.py
 ### Environment Variables (`.env`)
 
 ```env
-# CRITICAL - Generate with: openssl rand -hex 32
+# CRITICAL - Generate with: openssl rand -hex 48
 JWT_SECRET=your_secret_here
 
 # Logging
@@ -310,19 +309,13 @@ pytest tests/test_auth.py -v
 - [ ] Client honesty-based anti-cheat (needs server-side validation)
 - [ ] No persistent world between server restarts
 - [ ] Limited spectator functionality
-- [ ] No voice chat
 - [ ] No mobile client
 
 ## Future Roadmap
 
-- [ ] In-game friends system
-- [ ] Clan/guild support
-- [ ] Battle pass progression
 - [ ] Custom game modes
-- [ ] Replay system
 - [ ] Mobile client (React Native)
 - [ ] Trading/marketplace
-- [ ] PvE dungeons
 - [ ] Ranked ladder
 - [ ] Seasonal resets
 
@@ -350,4 +343,4 @@ For issues, questions, or suggestions:
 ---
 
 **Last Updated**: April 2026
-**Version**: 1.0.0
+**Version**: 0.1

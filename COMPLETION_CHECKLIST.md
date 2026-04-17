@@ -237,7 +237,6 @@
 - [ ] Admin panel GUI basic
 - [ ] Limited spectator features
 - [ ] No mobile client
-- [ ] No voice chat
 
 ## Completed Improvements Summary
 
