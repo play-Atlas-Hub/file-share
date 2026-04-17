@@ -1982,12 +1982,15 @@ class Game:
         """Async admin login"""
         try:
             # Send admin login message
-            await self.game_client.websocket.send(json.dumps({
-                "type": "admin_login",
-                "username": username,
-                "password": password
-            }))
-            print(f"[DEBUG] Attempted admin login for {username}")
+            if self.game_client.game_ws and self.game_client.connected:
+                await self.game_client.game_ws.send(json.dumps({
+                    "type": "admin_login",
+                    "username": username,
+                    "password": password
+                }))
+                print(f"[DEBUG] Attempted admin login for {username}")
+            else:
+                print(f"[ERROR] Not connected to game server")
             # Note: Response handling would need to be added in _handle_message
         except Exception as e:
             print(f"[ERROR] Admin login failed: {e}")

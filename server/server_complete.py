@@ -27,6 +27,15 @@ try:
 except ImportError:
     pass
 
+# Setup logging FIRST before any other code
+log_level = os.getenv('LOG_LEVEL', 'INFO')
+logging.basicConfig(
+    level=getattr(logging, log_level),
+    format='[%(asctime)s] %(levelname)-8s [%(name)s:%(funcName)s:%(lineno)d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
 # ==================== CONFIG LOADING ====================
 def load_config():
     """Load configuration from JSON file with error handling."""
