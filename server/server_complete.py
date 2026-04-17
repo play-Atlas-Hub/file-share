@@ -1428,6 +1428,7 @@ async def handle_game_client(websocket, path):
         await websocket.send(json.dumps({
             "type": "server_config",
             "tanks": {"list": TANKS_CONFIG},
+            "tanks_paths": CONFIG.get('tank').get('paths'),
             "upgrades": {"list": UPGRADES_CONFIG, "cost_per_upgrade": UPGRADE_COST},
             "ranks": {"thresholds": RANK_THRESHOLDS},
             "player": {"radius": PLAYER_RADIUS, "barrel_length": 25, "shot_cooldown": 0.1},
