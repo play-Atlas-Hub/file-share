@@ -1108,10 +1108,12 @@ class GameClient:
         self.connected = False
         self.server_config = {}
         
-        # Configurable server URLs
-        self.game_server_url = CLIENT_CONFIG.get('network', {}).get('game_server', 'ws://127.0.0.1:8765')
-        self.login_server_url = CLIENT_CONFIG.get('network', {}).get('login_server', 'ws://127.0.0.1:8766')
-        
+        ''' Configurable server URLs
+        self.game_server_url = CLIENT_CONFIG.get('network', {}).get('game_server', 'ws://0.0.0.0:8765')
+        self.login_server_url = CLIENT_CONFIG.get('network', {}).get('login_server', 'ws://0.0.0.0:8766')
+        '''
+        self.game_server_url, self.login_server_url = ServerSelectionScreen.url(self)
+
         # Game data
         self.players = {}
         self.blobs = {}
@@ -1218,7 +1220,8 @@ class GameClient:
 
     async def register(self, username: str, email: str, password: str) -> bool:
         """Register a new account with the login server"""
-        login_url = self.game_client.login_server_url
+        #login_url = self.game_client.login_server_url
+        login_url = self.login_server_url
 
         try:
             async with websockets.connect(login_url, ping_interval=20, ping_timeout=12) as ws:
@@ -1436,7 +1439,7 @@ class GameClient:
 # ==================== SERVER SELECTION SCREEN ====================
 class ServerSelectionScreen:
     def __init__(self, game_client):
-        self.game_client = game_client
+        self.game_client = GameClient()
         #for i in available_servers: make menu with "custom" ip's
         self.servers = [
             {"name": "Localhost Server", "game_url": "ws://localhost:8765", "login_url": "ws://localhost:8766"},
@@ -1448,6 +1451,8 @@ class ServerSelectionScreen:
         self.error_message = ""
     
     def handle_input(self, event):
+        global server_selection_screen_urls
+        server_selection_screen_urls = "null"
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
                 self.selected_server = (self.selected_server - 1) % len(self.servers)
@@ -1455,12 +1460,15 @@ class ServerSelectionScreen:
                 self.selected_server = (self.selected_server + 1) % len(self.servers)
             elif event.key == pygame.K_RETURN:
                 self.connecting = True
+                server_selection_screen_urls = (self.servers[self.selected_server]["game_url"], self.servers[self.selected_server]["login_url"])
                 server = self.servers[self.selected_server]
-                self.game_client.game_server_url = server["game_url"]
-                self.game_client.login_server_url = server["login_url"]
                 # Return to main game to proceed to auth
                 return "auth"
         return None
+    
+    def url(self):
+        urls = server_selection_screen_urls
+        return urls
     
     def draw(self, surface):
         surface.fill((20, 20, 20))

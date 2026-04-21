@@ -1585,6 +1585,8 @@ async def spawn_blobs_loop():
             max_total = int(world_area * MAX_BLOB_DENSITY)
             
             to_spawn = max(0, max_total - len(blobs))
+            if to_spawn > 100000:
+                to_spawn = 100000
             for _ in range(to_spawn):
                 blob_type = random.choice(list(BLOB_TYPES.keys()))
                 x = random.randint(BULLET_RADIUS * 2, WORLD_W - BULLET_RADIUS * 2)
@@ -1749,6 +1751,52 @@ async def start_game_server():
     print("Game server ready!")
     return server
 
+"""debug?"""
+#async def temp_loops():
+    #await asyncio.sleep(10 / 60)
+    #asyncio.create_task(debug_loop_temp())
+    #print("Temp loops started")
+    #asyncio.create_task(debug_loop_temp())
+    #await asyncio.Future()
+
+async def debug_commands_loop():
+    global server_input
+    server_input = "null"
+    while True:
+        server_input = input()
+        await asyncio.sleep(0.1)
+        #return server_input
+    
+
+async def debug_loop_temp():
+    global server_input
+    last_info_print = 0
+    last_time = time.time()
+    num = 0
+    #command = server_input.strip().lower()
+    while True:
+        if server_input == "":
+            print(f"{num}  [INFO] Players online: {len(players)}, Blobs: {len(blobs)}, Bullets: {len(bullets)}")
+            num = num + 1
+            server_input = "null"
+        await asyncio.sleep(0.01)
+
+    '''
+    while True:
+        if server_input == "/debug_start":
+            while True:
+                await asyncio.sleep(1 / 60)
+                current_time = time.time()
+                delta = current_time - last_time
+                last_time = current_time
+                if server_input == "/debug_stop":
+                    break
+                if current_time - last_info_print > 0.1:
+                        print(f"{num}  [INFO] Players online: {len(players)}, Blobs: {len(blobs)}, Bullets: {len(bullets)}")
+                        last_info_print = current_time
+                        num = num + 0.1
+                        '''
+
 async def main():
     # Start both servers
     login_server = await start_login_server()
@@ -1761,12 +1809,18 @@ async def main():
     print("\n✓ All servers running!")
     print("Press Ctrl+C to stop\n")
     
+    #start temp loops
+    asyncio.create_task(debug_commands_loop())
+    asyncio.create_task(debug_loop_temp())
+    print("Temp loops started")
+
     # Keep running
     await asyncio.Future()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
+        #asyncio.run(temp_loops())
     except KeyboardInterrupt:
         print("\nServers shutting down...")
         # Clean up guest accounts

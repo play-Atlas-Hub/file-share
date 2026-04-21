@@ -84,7 +84,7 @@ class ServerInteractive:
         self.screen_width = 928
         self.screen_height = 522
 
-    async def connect(self, server_url="ws://localhost:8765"):
+    async def connect(self, server_url="ws://0.0.0.0:8765"):
         try:
             self.websocket = await websockets.connect(server_url)
             self.state = AdminState.LOGIN
@@ -99,7 +99,7 @@ class ServerInteractive:
         
         try:
             # First login to auth server
-            auth_ws = await websockets.connect("ws://localhost:8766")
+            auth_ws = await websockets.connect("ws://0.0.0.0:8766")
             await auth_ws.send(json.dumps({
                 "action": "login",
                 "username": username,
